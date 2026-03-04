@@ -190,11 +190,15 @@ export function ScatterPlot({ activities, athlete, showWMA = true }: ScatterPlot
       <div className="flex gap-4 p-3 border-b border-gray-100">
         <AxisSelector label="X" value={xAxis} onChange={setXAxis} />
         <AxisSelector label="Y" value={yAxis} onChange={setYAxis} />
-        {showWMA && athlete?.age && athlete?.sex && (
+        {showWMA && athlete?.age && athlete?.sex ? (
           <span className="text-xs text-gray-400 self-center">
             WMA contours: age {athlete.age}, {athlete.sex}
           </span>
-        )}
+        ) : showWMA ? (
+          <span className="text-xs text-amber-500 self-center">
+            Set your age and sex in Settings to enable age-grade contours
+          </span>
+        ) : null}
       </div>
 
       {/* Plot */}

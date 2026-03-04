@@ -11,6 +11,7 @@ async function stravaFetch(path: string, accessToken: string): Promise<unknown> 
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (res.status === 401) throw new Error('UNAUTHORIZED')
+  if (res.status === 429) throw new Error('RATE_LIMITED')
   if (!res.ok) throw new Error(`Strava API error: ${res.status}`)
   return res.json()
 }

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(pnpm exec:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm test:*)"
     ]
   }
 }

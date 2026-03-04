@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { FilterPanel } from '../../components/filter/FilterPanel'
 import { ScatterPlot } from '../../components/plots/ScatterPlot'
 import { SeriesPlot } from '../../components/plots/SeriesPlot'
+import { RouteMap } from '../../components/plots/RouteMap'
 import { useAllActivities, useAthlete } from '../../hooks/useActivities'
 import { useStravaSync } from '../../hooks/useStravaSync'
-import { useStreams } from '../../hooks/useStreams'
+import { useStreams, useStream } from '../../hooks/useStreams'
 import { applyFilter } from '../../lib/analysis/filter'
 import type { FilterState } from '../../lib/strava/types'
 import { SettingsPanel } from './SettingsPanel'
@@ -18,7 +19,13 @@ const DEFAULT_FILTER: FilterState = {
   pace: null,
 }
 
-type PlotMode = 'scatter' | 'series'
+type PlotMode = 'scatter' | 'series' | 'map'
+
+const MODE_LABELS: Record<PlotMode, string> = {
+  scatter: 'Scatter',
+  series: 'Series',
+  map: 'Map',
+}
 
 export default function Dashboard() {
   const allActivities = useAllActivities()
@@ -28,21 +35,35 @@ export default function Dashboard() {
   const [plotMode, setPlotMode] = useState<PlotMode>('scatter')
   const [showSettings, setShowSettings] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
+  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
 
   const filteredActivities = useMemo(
     () => applyFilter(allActivities, filter),
     [allActivities, filter]
   )
 
-  // Limit stream fetching to first 20 filtered activities for series plot
+  // Auto-select first activity when entering map mode or when filtered set changes
+  useEffect(() => {
+    if (plotMode === 'map' && filteredActivities.length > 0) {
+      setSelectedActivityId((prev) =>
+        filteredActivities.find((a) => a.id === prev) ? prev : filteredActivities[0].id
+      )
+    }
+  }, [plotMode, filteredActivities])
+
+  // Fetch streams for series mode (multiple activities)
   const streamActivityIds = useMemo(
     () => (plotMode === 'series' ? filteredActivities.slice(0, 20).map((a) => a.id) : []),
     [filteredActivities, plotMode]
   )
+  const { streams, loading: streamsLoading, error: streamsError } = useStreams(streamActivityIds)
 
-  const { streams, loading: streamsLoading } = useStreams(streamActivityIds)
+  // Fetch single stream for map mode
+  const { stream: mapStream, loading: mapStreamLoading, error: mapStreamError } = useStream(
+    plotMode === 'map' ? selectedActivityId : null
+  )
 
-  const isConnected = allActivities.length > 0 || isSyncing
+  const selectedActivity = filteredActivities.find((a) => a.id === selectedActivityId) ?? null
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -52,7 +73,7 @@ export default function Dashboard() {
 
         {/* Plot mode toggle */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {(['scatter', 'series'] as PlotMode[]).map((mode) => (
+          {(['scatter', 'series', 'map'] as PlotMode[]).map((mode) => (
             <button
               key={mode}
               onClick={() => setPlotMode(mode)}
@@ -62,7 +83,7 @@ export default function Dashboard() {
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {mode === 'scatter' ? 'Scatter' : 'Series'}
+              {MODE_LABELS[mode]}
             </button>
           ))}
         </div>
@@ -82,15 +103,23 @@ export default function Dashboard() {
 
         <div className="ml-auto flex items-center gap-3">
           {/* Sync status */}
-          {isSyncing && progress && (
+          {progress?.phase === 'error' ? (
+            progress.error === 'UNAUTHORIZED' ? (
+              <a href="/api/auth/strava" className="text-sm text-orange-600 underline">
+                Session expired — reconnect with Strava
+              </a>
+            ) : (
+              <span className="text-sm text-red-500">{progress.error ?? 'Sync failed'}</span>
+            )
+          ) : isSyncing && progress ? (
             <span className="text-sm text-gray-500">
               {progress.phase === 'activities'
                 ? `Syncing... ${progress.activitiesFetched} activities`
                 : progress.phase === 'done'
                 ? 'Sync complete'
-                : progress.phase}
+                : null}
             </span>
-          )}
+          ) : null}
 
           <button
             onClick={startSync}
@@ -127,14 +156,26 @@ export default function Dashboard() {
             filteredCount={filteredActivities.length}
           />
 
-          {/* Activity list preview */}
+          {/* Activity list — clickable in map mode, preview otherwise */}
           {filteredActivities.length > 0 && (
             <div className="mt-4 space-y-1">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                Recent matches
+                {plotMode === 'map' ? 'Select activity' : 'Recent matches'}
               </p>
-              {filteredActivities.slice(0, 8).map((a) => (
-                <div key={a.id} className="text-xs py-1.5 px-2 rounded hover:bg-gray-50">
+              {filteredActivities.slice(0, plotMode === 'map' ? 50 : 8).map((a) => (
+                <div
+                  key={a.id}
+                  onClick={() => plotMode === 'map' && setSelectedActivityId(a.id)}
+                  className={`text-xs py-1.5 px-2 rounded ${
+                    plotMode === 'map'
+                      ? `cursor-pointer ${
+                          a.id === selectedActivityId
+                            ? 'bg-orange-50 border border-orange-200'
+                            : 'hover:bg-gray-50'
+                        }`
+                      : 'hover:bg-gray-50'
+                  }`}
+                >
                   <p className="font-medium text-gray-700 truncate">{a.name}</p>
                   <p className="text-gray-400">
                     {new Date(a.start_date).toLocaleDateString()} ·{' '}
@@ -166,13 +207,47 @@ export default function Dashboard() {
               athlete={athlete ?? null}
               showWMA={showWMA}
             />
-          ) : (
-            <SeriesPlot
-              activities={filteredActivities}
-              streams={streams}
-              loading={streamsLoading}
-            />
-          )}
+          ) : plotMode === 'series' ? (
+            streamsError ? (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-sm text-red-500">
+                  {streamsError === 'RATE_LIMITED'
+                    ? 'Strava rate limit reached — wait a few minutes and try again'
+                    : streamsError === 'UNAUTHORIZED'
+                    ? 'Session expired — reconnect with Strava'
+                    : `Failed to load streams: ${streamsError}`}
+                </p>
+              </div>
+            ) : (
+              <SeriesPlot
+                activities={filteredActivities}
+                streams={streams}
+                loading={streamsLoading}
+              />
+            )
+          ) : plotMode === 'map' ? (
+            filteredActivities.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                No activities match the current filters
+              </div>
+            ) : mapStreamError ? (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-sm text-red-500">
+                  {mapStreamError === 'RATE_LIMITED'
+                    ? 'Strava rate limit reached — wait a few minutes and try again'
+                    : mapStreamError === 'UNAUTHORIZED'
+                    ? 'Session expired — reconnect with Strava'
+                    : `Failed to load route: ${mapStreamError}`}
+                </p>
+              </div>
+            ) : selectedActivity ? (
+              <RouteMap
+                activity={selectedActivity}
+                stream={mapStream}
+                loading={mapStreamLoading}
+              />
+            ) : null
+          ) : null}
         </main>
       </div>
 

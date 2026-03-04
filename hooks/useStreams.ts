@@ -52,18 +52,29 @@ export function useStream(activityId: number | null): {
 export function useStreams(activityIds: number[]): {
   streams: Map<number, ActivityStream>
   loading: boolean
+  error: string | null
 } {
   const [streams, setStreams] = useState<Map<number, ActivityStream>>(new Map())
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Stable string key: sorted so order changes don't cause spurious refetches
+  const idsKey = [...activityIds].sort((a, b) => a - b).join(',')
 
   useEffect(() => {
-    if (activityIds.length === 0) return
+    if (!idsKey) {
+      setStreams(new Map())
+      setLoading(false)
+      return
+    }
 
     setLoading(true)
+    setError(null)
+    const ids = idsKey.split(',').map(Number)
     const token = getAccessToken()
 
     Promise.all(
-      activityIds.map(async (id) => {
+      ids.map(async (id) => {
         const cached = await db.streams.get(id)
         if (cached) return [id, cached] as [number, ActivityStream]
 
@@ -79,8 +90,11 @@ export function useStreams(activityIds: number[]): {
       }
       setStreams(map)
       setLoading(false)
+    }).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load streams')
+      setLoading(false)
     })
-  }, [activityIds.join(',')])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [idsKey])
 
-  return { streams, loading }
+  return { streams, loading, error }
 }
