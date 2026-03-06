@@ -25,20 +25,10 @@ export function applyFilter(activities: StravaActivity[], filter: FilterState): 
       if (a.distance > filter.distanceRange.max) return false
     }
 
-    // Pace filter
-    if (filter.pace) {
-      const { mode, splitDistance, range } = filter.pace
-
-      if (mode === 'average') {
-        // average_speed in m/s → pace in s/km
-        const pace = a.average_speed > 0 ? 1000 / a.average_speed : Infinity
-        if (pace < range.min || pace > range.max) return false
-      } else if (mode === 'best_split' && splitDistance) {
-        const key = String(splitDistance)
-        const splitPace = a.best_splits?.[key]
-        if (splitPace === undefined) return false // no stream data yet
-        if (splitPace < range.min || splitPace > range.max) return false
-      }
+    // Pace filters — average and best-split are independent; either or both may be active
+    if (filter.pace.average) {
+      const pace = a.average_speed > 0 ? 1000 / a.average_speed : Infinity
+      if (pace < filter.pace.average.min || pace > filter.pace.average.max) return false
     }
 
     return true
@@ -56,10 +46,8 @@ export function getDistanceBounds(activities: StravaActivity[]): { min: number; 
 
 export function getDateBounds(activities: StravaActivity[]): { min: string; max: string } {
   if (activities.length === 0) {
-    const now = new Date()
-    const yearAgo = new Date(now)
-    yearAgo.setFullYear(now.getFullYear() - 1)
-    return { min: yearAgo.toISOString(), max: now.toISOString() }
+    // Use fixed dates to avoid hydration mismatch (Date.now() differs between SSR and client)
+    return { min: '2025-01-01T00:00:00.000Z', max: '2026-12-31T23:59:59.999Z' }
   }
   const dates = activities.map((a) => a.start_date)
   return {
@@ -71,4 +59,13 @@ export function getDateBounds(activities: StravaActivity[]): { min: string; max:
 export function getSportTypes(activities: StravaActivity[]): string[] {
   const types = new Set(activities.map((a) => a.sport_type || a.type))
   return Array.from(types).sort()
+}
+
+/** Returns the min/max average pace (s/km) across all activities that have speed data. */
+export function getAveragePaceBounds(activities: StravaActivity[]): { min: number; max: number } {
+  const paces = activities
+    .filter((a) => a.average_speed > 0)
+    .map((a) => 1000 / a.average_speed)
+  if (paces.length === 0) return { min: 2 * 60, max: 12 * 60 }
+  return { min: Math.min(...paces), max: Math.max(...paces) }
 }

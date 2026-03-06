@@ -7,7 +7,6 @@
 import { db } from './schema'
 import { fetchActivitiesPage, fetchAthlete, fetchActivityStreams } from '../strava/client'
 import type { StravaActivity, ActivityStream } from '../strava/types'
-import { computeBestSplits } from '../analysis/bestSplit'
 
 export interface SyncProgress {
   phase: 'athlete' | 'activities' | 'streams' | 'done' | 'error'
@@ -96,20 +95,6 @@ export async function syncStreamsForActivity(
   }
 
   await db.streams.put(stream)
-
-  // Compute and store best splits
-  const splitDistances = [1000, 1609, 3000, 5000, 8047, 10000, 16093, 21097, 42195]
-  const bestSplits: Record<string, number> = {}
-  for (const dist of splitDistances) {
-    if (stream.distance.length > 0 && stream.distance[stream.distance.length - 1] >= dist) {
-      const pace = computeBestSplits(stream.time, stream.distance, dist)
-      if (pace !== null) bestSplits[String(dist)] = pace
-    }
-  }
-
-  if (Object.keys(bestSplits).length > 0) {
-    await db.activities.update(activityId, { best_splits: bestSplits })
-  }
 
   return stream
 }

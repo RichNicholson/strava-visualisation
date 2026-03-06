@@ -4,32 +4,67 @@ import { useRef, useEffect, useState } from 'react'
 import * as d3 from 'd3'
 import type { StravaActivity, MetricKey, Athlete } from '../../lib/strava/types'
 import { getMetricValue, METRIC_LABELS } from '../../lib/strava/types'
-import { generateAgeGradeContour, WMA_DISTANCES } from '../../lib/wma/ageGrade'
-import { AxisSelector } from './AxisSelector'
+import { generateAgeGradeContour } from '../../lib/wma/ageGrade'
+
+type YAxis = MetricKey
+type ColorMetric = MetricKey | 'index'
+type ColorScheme = 'Oranges' | 'Viridis' | 'Cool' | 'Plasma'
+
+const COLOR_SCHEMES: Record<ColorScheme, (t: number) => string> = {
+  Oranges: d3.interpolateOranges,
+  Viridis: d3.interpolateViridis,
+  Cool: d3.interpolateCool,
+  Plasma: d3.interpolatePlasma,
+}
+
+const CONTOUR_GRADES = Array.from({ length: 21 }, (_, i) => 50 + i * 2)
+const CONTOUR_COLORS = CONTOUR_GRADES.map((_, i) =>
+  d3.interpolateGreens(0.25 + (i / 20) * 0.65)
+)
+
+const MARGIN = { top: 20, right: 80, bottom: 50, left: 70 }
+
+// MetricKey entries for axis/color selectors
+const METRIC_OPTIONS = Object.entries(METRIC_LABELS) as [MetricKey, string][]
 
 interface ScatterPlotProps {
   activities: StravaActivity[]
   athlete: Athlete | null
   showWMA?: boolean
+  roster?: Set<number>
+  onToggleRoster?: (id: number) => void
 }
 
-const CONTOUR_GRADES = [40, 50, 60, 70, 80, 90]
-const CONTOUR_COLORS = ['#e8f5e9', '#c8e6c9', '#a5d6a7', '#66bb6a', '#43a047', '#2e7d32']
-
-const MARGIN = { top: 20, right: 80, bottom: 50, left: 70 }
-
-export function ScatterPlot({ activities, athlete, showWMA = true }: ScatterPlotProps) {
+export function ScatterPlot({ activities, athlete, showWMA = true, roster, onToggleRoster }: ScatterPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Stable ref for the toggle callback — keeps it out of the useEffect dep array
+  const onToggleRosterRef = useRef(onToggleRoster)
+  useEffect(() => { onToggleRosterRef.current = onToggleRoster }, [onToggleRoster])
+
   const [xAxis, setXAxis] = useState<MetricKey>('distance')
-  const [yAxis, setYAxis] = useState<MetricKey>('average_pace')
-  const [tooltip, setTooltip] = useState<{
-    x: number; y: number; activity: StravaActivity
-  } | null>(null)
+  const [yAxis, setYAxis] = useState<YAxis>('average_pace')
+  const [colorMetric, setColorMetric] = useState<ColorMetric>('index')
+  const [colorScheme, setColorScheme] = useState<ColorScheme>('Oranges')
+  // viewDomain: stable scale — null triggers a fit from data then locks.
+  // Does NOT auto-update when activities (filter) changes, preventing unwanted rescales.
+  const [viewDomain, setViewDomain] = useState<{ x: [number, number]; y: [number, number] } | null>(null)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; activity: StravaActivity } | null>(null)
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
     if (activities.length === 0) return
+
+    const isPace = yAxis === 'average_pace'
+
+    const getYValue = (a: StravaActivity): number | null => getMetricValue(a, yAxis)
+
+    const plotActivities = activities
+
+    const svg = d3.select(svgRef.current)
+    svg.selectAll('*').remove()
+
+    if (plotActivities.length === 0) return
 
     const container = containerRef.current
     const width = container.clientWidth
@@ -37,40 +72,62 @@ export function ScatterPlot({ activities, athlete, showWMA = true }: ScatterPlot
     const innerW = width - MARGIN.left - MARGIN.right
     const innerH = height - MARGIN.top - MARGIN.bottom
 
-    const svg = d3.select(svgRef.current)
-    svg.selectAll('*').remove()
     svg.attr('width', width).attr('height', height)
+
+    // Clip path so zoomed dots don't overflow the axes
+    svg.append('defs')
+      .append('clipPath').attr('id', 'scatter-clip')
+      .append('rect').attr('width', innerW).attr('height', innerH)
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
 
-    const xVals = activities.map((a) => getMetricValue(a, xAxis))
-    const yVals = activities.map((a) => getMetricValue(a, yAxis))
+    const xVals = plotActivities.map((a) => getMetricValue(a, xAxis))
+    const yVals = plotActivities.map((a) => getYValue(a)!)
 
-    const xScale = d3
-      .scaleLinear()
-      .domain([d3.min(xVals)! * 0.95, d3.max(xVals)! * 1.05])
+    // Use exact data bounds; nice() will round to clean tick values.
+    const xDomainDefault: [number, number] = [d3.min(xVals)!, d3.max(xVals)!]
+    const yDomainDefault: [number, number] = isPace
+      ? [d3.max(yVals)!, d3.min(yVals)!]  // inverted: slow at bottom
+      : [d3.min(yVals)!, d3.max(yVals)!]
+
+    const xScale = d3.scaleLinear()
+      .domain(viewDomain?.x ?? xDomainDefault)
       .range([0, innerW])
-      .nice()
+    const yScale = d3.scaleLinear()
+      .domain(viewDomain?.y ?? yDomainDefault)
+      .range([innerH, 0])
 
-    // For pace: invert Y axis (lower pace = faster = better, shown at top)
-    const isPace = yAxis === 'average_pace'
-    const yDomain: [number, number] = isPace
-      ? [d3.max(yVals)! * 1.05, d3.min(yVals)! * 0.95]
-      : [d3.min(yVals)! * 0.95, d3.max(yVals)! * 1.05]
+    // If no locked domain yet, fit (with nice axes) then lock so future filter
+    // changes don't cause the plot to rescale.
+    if (!viewDomain) {
+      xScale.nice()
+      yScale.nice()
+      setViewDomain({
+        x: xScale.domain() as [number, number],
+        y: yScale.domain() as [number, number],
+      })
+    }
 
-    const yScale = d3.scaleLinear().domain(yDomain).range([innerH, 0]).nice()
+    // Grid lines
+    g.append('g')
+      .attr('class', 'grid-x')
+      .attr('transform', `translate(0,${innerH})`)
+      .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+
+    g.append('g')
+      .attr('class', 'grid-y')
+      .call(d3.axisLeft(yScale).ticks(12).tickSize(-innerW).tickFormat(() => ''))
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
 
     // X axis
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
-      .call(d3.axisBottom(xScale).ticks(8))
+      .call(d3.axisBottom(xScale).ticks(16))
       .call((ax) =>
         ax.append('text')
-          .attr('x', innerW / 2)
-          .attr('y', 40)
-          .attr('fill', '#6b7280')
-          .attr('text-anchor', 'middle')
-          .attr('font-size', '12px')
+          .attr('x', innerW / 2).attr('y', 40)
+          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
           .text(METRIC_LABELS[xAxis])
       )
 
@@ -82,128 +139,279 @@ export function ScatterPlot({ activities, athlete, showWMA = true }: ScatterPlot
         }
       : undefined
 
+    const yLabel = METRIC_LABELS[yAxis]
+
     g.append('g')
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(yFmt as never))
+      .call(d3.axisLeft(yScale).ticks(12).tickFormat(yFmt as never))
       .call((ax) =>
         ax.append('text')
           .attr('transform', 'rotate(-90)')
-          .attr('x', -innerH / 2)
-          .attr('y', -55)
-          .attr('fill', '#6b7280')
-          .attr('text-anchor', 'middle')
-          .attr('font-size', '12px')
-          .text(METRIC_LABELS[yAxis])
+          .attr('x', -innerH / 2).attr('y', -55)
+          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+          .text(yLabel)
       )
 
-    // Grid lines
-    g.append('g')
-      .attr('class', 'grid')
-      .call(
-        d3.axisLeft(yScale)
-          .ticks(6)
-          .tickSize(-innerW)
-          .tickFormat(() => '')
-      )
-      .selectAll('line')
-      .attr('stroke', '#f3f4f6')
-
-    // WMA contour lines (only shown when Y = pace and X = distance)
-    if (showWMA && isPace && xAxis === 'distance' && athlete?.sex && athlete?.age) {
-      const contourDistances = d3.range(
-        xScale.domain()[0] * 1000,
-        xScale.domain()[1] * 1000,
-        500
-      )
+    // WMA contours (distance × average_pace only)
+    if (showWMA && xAxis === 'distance' && yAxis === 'average_pace' && athlete?.sex && athlete?.age) {
+      const contourDistances = d3.range(xScale.domain()[0] * 1000, xScale.domain()[1] * 1000, 500)
 
       CONTOUR_GRADES.forEach((grade, i) => {
-        const pts = generateAgeGradeContour(
-          athlete.sex!,
-          athlete.age!,
-          grade,
-          contourDistances
-        )
+        const pts = generateAgeGradeContour(athlete.sex!, athlete.age!, grade, contourDistances)
+        const isMajor = grade % 10 === 0
 
-        const lineGen = d3
-          .line<{ distance: number; pace: number }>()
+        const lineGen = d3.line<{ distance: number; pace: number }>()
           .x((d) => xScale(d.distance / 1000))
           .y((d) => yScale(d.pace))
-          .defined((d) => isFinite(d.pace) && yScale(d.pace) >= 0 && yScale(d.pace) <= innerH)
+          .defined((d) => {
+            const sy = yScale(d.pace)
+            return isFinite(d.pace) && sy >= 0 && sy <= innerH
+          })
 
         g.append('path')
           .datum(pts)
           .attr('fill', 'none')
           .attr('stroke', CONTOUR_COLORS[i])
-          .attr('stroke-width', 1.5)
-          .attr('stroke-dasharray', '4 3')
+          .attr('stroke-width', isMajor ? 1.8 : 1)
+          .attr('stroke-dasharray', isMajor ? '4 3' : '2 2')
           .attr('d', lineGen)
 
-        // Label at right edge
-        const lastVisible = pts.filter((d) => {
-          const sy = yScale(d.pace)
-          return isFinite(d.pace) && sy >= 0 && sy <= innerH
-        })
-        if (lastVisible.length > 0) {
-          const last = lastVisible[lastVisible.length - 1]
-          g.append('text')
-            .attr('x', xScale(last.distance / 1000) + 4)
-            .attr('y', yScale(last.pace))
-            .attr('font-size', '10px')
-            .attr('fill', CONTOUR_COLORS[i])
-            .attr('dominant-baseline', 'middle')
-            .text(`${grade}%`)
+        if (isMajor) {
+          const lastVisible = pts.filter((d) => {
+            const sy = yScale(d.pace)
+            return isFinite(d.pace) && sy >= 0 && sy <= innerH && xScale(d.distance / 1000) <= innerW
+          })
+          if (lastVisible.length > 0) {
+            const last = lastVisible[lastVisible.length - 1]
+            g.append('text')
+              .attr('x', xScale(last.distance / 1000) + 4)
+              .attr('y', yScale(last.pace))
+              .attr('font-size', '10px').attr('fill', CONTOUR_COLORS[i])
+              .attr('dominant-baseline', 'middle')
+              .text(`${grade}%`)
+          }
         }
       })
     }
 
-    // Dots
-    const colorScale = d3.scaleSequential(d3.interpolateOranges).domain([0, activities.length])
-
-    g.selectAll('circle')
-      .data(activities)
-      .join('circle')
-      .attr('cx', (a) => xScale(getMetricValue(a, xAxis)))
-      .attr('cy', (a) => yScale(getMetricValue(a, yAxis)))
-      .attr('r', 5)
-      .attr('fill', (_, i) => colorScale(i))
-      .attr('stroke', 'white')
-      .attr('stroke-width', 1)
-      .attr('opacity', 0.85)
-      .style('cursor', 'pointer')
-      .on('mouseenter', function (event: MouseEvent, a: StravaActivity) {
-        d3.select(this).attr('r', 7).attr('opacity', 1)
-        const rect = svgRef.current!.getBoundingClientRect()
-        setTooltip({
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top,
-          activity: a,
+    // Brush → zoom (distance × pace only)
+    if (isPace && xAxis === 'distance') {
+      const brushGroup = g.append('g').attr('class', 'brush')
+      const brush = d3.brush()
+        .extent([[0, 0], [innerW, innerH]])
+        .on('end', (event) => {
+          if (!event.sourceEvent || !event.selection) return
+          const [[px0, py0], [px1, py1]] = event.selection as [[number, number], [number, number]]
+          // newY: always [invert(bottom), invert(top)] so domain direction is preserved
+          // for inverted scale (pace): [slow, fast]; for normal: [small, large]
+          setViewDomain({
+            x: [xScale.invert(px0), xScale.invert(px1)],
+            y: [yScale.invert(py1), yScale.invert(py0)],
+          })
         })
+
+      brushGroup.call(brush)
+      // Make the selection rectangle clearly visible
+      brushGroup.select('.selection')
+        .attr('fill', '#f97316')
+        .attr('fill-opacity', 0.12)
+        .attr('stroke', '#f97316')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', 'none')
+      brushGroup.select('.overlay').attr('stroke', 'none')
+    }
+
+    // Dots (clipped so zoom clips out-of-range points)
+    const dotsGroup = g.append('g').attr('clip-path', 'url(#scatter-clip)')
+    // Out-of-bounds markers: no clip-path, clamped to perimeter
+    const crossGroup = g.append('g')
+
+    let colorFn: (a: StravaActivity, i: number) => string
+    if (colorMetric === 'index') {
+      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme]).domain([0, plotActivities.length])
+      colorFn = (_, i) => cs(i)
+    } else {
+      const cVals = plotActivities.map((a) => getMetricValue(a, colorMetric as MetricKey))
+      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme])
+        .domain([d3.min(cVals)!, d3.max(cVals)!])
+      colorFn = (a) => cs(getMetricValue(a, colorMetric as MetricKey))
+    }
+
+    // Precompute pixel positions and whether each point is within the plot area
+    type PlotDatum = { activity: StravaActivity; rawCx: number; rawCy: number; cx: number; cy: number; oob: boolean; idx: number }
+    const plotData: PlotDatum[] = plotActivities.map((a, idx) => {
+      const rawCx = xScale(getMetricValue(a, xAxis))
+      const rawCy = yScale(getYValue(a)!)
+      const oob = rawCx < 0 || rawCx > innerW || rawCy < 0 || rawCy > innerH
+      return {
+        activity: a, idx,
+        rawCx, rawCy,
+        cx: Math.max(0, Math.min(innerW, rawCx)),
+        cy: Math.max(0, Math.min(innerH, rawCy)),
+        oob,
+      }
+    })
+
+    const inBoundsData  = plotData.filter((d) => !d.oob)
+    const outBoundsData = plotData.filter((d) =>  d.oob)
+
+    // ── In-bounds: circles ────────────────────────────────────────────────────
+    dotsGroup.selectAll('circle')
+      .data(inBoundsData)
+      .join('circle')
+      .attr('cx', (d) => d.cx)
+      .attr('cy', (d) => d.cy)
+      .attr('r', (d) => roster?.has(d.activity.id) ? 7 : 5)
+      .attr('fill', (d) => colorFn(d.activity, d.idx))
+      .attr('stroke', (d) => roster?.has(d.activity.id) ? '#f97316' : 'white')
+      .attr('stroke-width', (d) => roster?.has(d.activity.id) ? 2.5 : 1)
+      .attr('opacity', 0.9)
+      .style('cursor', 'pointer')
+      .on('click', function (event: MouseEvent, d) {
+        event.stopPropagation()
+        onToggleRosterRef.current?.(d.activity.id)
       })
-      .on('mouseleave', function () {
-        d3.select(this).attr('r', 5).attr('opacity', 0.85)
+      .on('mouseenter', function (event: MouseEvent, d) {
+        d3.select(this).attr('r', roster?.has(d.activity.id) ? 9 : 7).attr('opacity', 1)
+        const rect = svgRef.current!.getBoundingClientRect()
+        setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
+      })
+      .on('mouseleave', function (event: MouseEvent, d) {
+        d3.select(this).attr('r', roster?.has(d.activity.id) ? 7 : 5).attr('opacity', 0.9)
         setTooltip(null)
       })
-  }, [activities, xAxis, yAxis, athlete, showWMA])
+
+    // ── Out-of-bounds: × markers clamped to perimeter ────────────────────────
+    const S = 5  // half-size of the × arms
+    const crossPath = `M${-S},${-S}L${S},${S}M${-S},${S}L${S},${-S}`
+
+    crossGroup.selectAll('g.oob')
+      .data(outBoundsData)
+      .join('g')
+      .attr('class', 'oob')
+      .attr('transform', (d) => `translate(${d.cx},${d.cy})`)
+      .style('cursor', 'pointer')
+      .each(function (d) {
+        const el = d3.select(this)
+        const color = colorFn(d.activity, d.idx)
+        // White halo for contrast against the axis
+        el.append('path').attr('d', crossPath)
+          .attr('stroke', 'white').attr('stroke-width', 3.5).attr('fill', 'none')
+        el.append('path').attr('d', crossPath)
+          .attr('stroke', color).attr('stroke-width', 2).attr('fill', 'none').attr('opacity', 0.9)
+      })
+      .on('mouseenter', function (event: MouseEvent, d) {
+        d3.select(this).selectAll('path:last-child').attr('stroke-width', 3).attr('opacity', 1)
+        const rect = svgRef.current!.getBoundingClientRect()
+        setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
+      })
+      .on('mouseleave', function () {
+        d3.select(this).selectAll('path:last-child').attr('stroke-width', 2).attr('opacity', 0.9)
+        setTooltip(null)
+      })
+      .on('click', function (event: MouseEvent, d) {
+        event.stopPropagation()
+        onToggleRosterRef.current?.(d.activity.id)
+      })
+
+  }, [activities, xAxis, yAxis, athlete, showWMA, colorMetric, colorScheme, viewDomain, roster])
+
+  const autoScale = () => setViewDomain(null)
 
   return (
     <div className="flex flex-col h-full">
-      {/* Axis selectors */}
-      <div className="flex gap-4 p-3 border-b border-gray-100">
-        <AxisSelector label="X" value={xAxis} onChange={setXAxis} />
-        <AxisSelector label="Y" value={yAxis} onChange={setYAxis} />
-        {showWMA && athlete?.age && athlete?.sex ? (
-          <span className="text-xs text-gray-400 self-center">
-            WMA contours: age {athlete.age}, {athlete.sex}
-          </span>
-        ) : showWMA ? (
-          <span className="text-xs text-amber-500 self-center">
-            Set your age and sex in Settings to enable age-grade contours
-          </span>
-        ) : null}
+      {/* Controls — two rows */}
+      <div className="flex flex-col gap-1.5 p-3 border-b border-gray-100">
+
+        {/* Row 1: axes */}
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* X axis */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500 w-4">X</span>
+            <select
+              value={xAxis}
+              onChange={(e) => { setXAxis(e.target.value as MetricKey); setViewDomain(null) }}
+              className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+            >
+              {METRIC_OPTIONS.map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Y axis */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500 w-4">Y</span>
+            <select
+              value={yAxis}
+              onChange={(e) => { setYAxis(e.target.value as YAxis); setViewDomain(null) }}
+              className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+            >
+              {METRIC_OPTIONS.map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Auto-scale button — always available */}
+          <button
+            onClick={autoScale}
+            className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600 transition-colors"
+            title="Re-fit axes to current data"
+          >
+            Auto-scale
+          </button>
+
+          {/* WMA note */}
+          {showWMA && xAxis === 'distance' && yAxis === 'average_pace' && (
+            <span className="text-xs text-gray-400 ml-auto self-center">
+              {athlete?.age && athlete?.sex
+                ? `WMA contours: age ${athlete.age}, ${athlete.sex}`
+                : 'Set age/sex in Settings for WMA contours'}
+            </span>
+          )}
+        </div>
+
+        {/* Row 2: colour */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs font-medium text-gray-500">Color</span>
+          <select
+            value={colorMetric}
+            onChange={(e) => setColorMetric(e.target.value as ColorMetric)}
+            className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+          >
+            <option value="index">Chronological</option>
+            {METRIC_OPTIONS.map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
+            ))}
+          </select>
+          <div className="flex gap-1">
+            {(Object.keys(COLOR_SCHEMES) as ColorScheme[]).map((scheme) => (
+              <button
+                key={scheme}
+                onClick={() => setColorScheme(scheme)}
+                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                  colorScheme === scheme
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : 'border-gray-300 text-gray-500 hover:border-orange-300'
+                }`}
+              >
+                {scheme}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Plot */}
-      <div ref={containerRef} className="flex-1 relative min-h-0">
+      <div
+        ref={containerRef}
+        className="flex-1 relative min-h-0"
+        onDoubleClick={autoScale}
+        title="Double-click to auto-scale"
+      >
         <svg ref={svgRef} className="w-full h-full" />
+
+        {/* Zoom / scale hint */}
 
         {/* Tooltip */}
         {tooltip && (
@@ -215,9 +423,15 @@ export function ScatterPlot({ activities, athlete, showWMA = true }: ScatterPlot
             <p className="text-gray-500">
               {new Date(tooltip.activity.start_date).toLocaleDateString()}
             </p>
-            <p className="text-gray-600">
-              {(tooltip.activity.distance / 1000).toFixed(2)} km
-            </p>
+            <p className="text-gray-600">{(tooltip.activity.distance / 1000).toFixed(2)} km</p>
+            {tooltip.activity.average_speed > 0 && (
+              <p className="text-gray-600">
+                {(() => {
+                  const pace = 1000 / tooltip.activity.average_speed
+                  return `${Math.floor(pace / 60)}:${String(Math.round(pace % 60)).padStart(2, '0')} /km avg`
+                })()}
+              </p>
+            )}
           </div>
         )}
 

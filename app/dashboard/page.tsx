@@ -1,28 +1,31 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { FilterPanel } from '../../components/filter/FilterPanel'
 import { ScatterPlot } from '../../components/plots/ScatterPlot'
 import { SeriesPlot } from '../../components/plots/SeriesPlot'
 import { RouteMap } from '../../components/plots/RouteMap'
+import { RosterPanel, ROSTER_CAPACITY } from '../../components/roster/RosterPanel'
+import { ActivityTable } from '../../components/table/ActivityTable'
 import { useAllActivities, useAthlete } from '../../hooks/useActivities'
 import { useStravaSync } from '../../hooks/useStravaSync'
 import { useStreams, useStream } from '../../hooks/useStreams'
 import { applyFilter } from '../../lib/analysis/filter'
-import type { FilterState } from '../../lib/strava/types'
+import type { FilterState, StravaActivity } from '../../lib/strava/types'
 import { SettingsPanel } from './SettingsPanel'
 
 const DEFAULT_FILTER: FilterState = {
   dateRange: null,
   distanceRange: null,
   sport: ['Run'],
-  pace: null,
+  pace: { average: { min: 3 * 60, max: 10 * 60 } },
 }
 
-type PlotMode = 'scatter' | 'series' | 'map'
+type PlotMode = 'scatter' | 'table' | 'series' | 'map'
 
 const MODE_LABELS: Record<PlotMode, string> = {
   scatter: 'Scatter',
+  table: 'Table',
   series: 'Series',
   map: 'Map',
 }
@@ -36,34 +39,54 @@ export default function Dashboard() {
   const [showSettings, setShowSettings] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
+  const [roster, setRoster] = useState<Set<number>>(new Set())
 
   const filteredActivities = useMemo(
     () => applyFilter(allActivities, filter),
     [allActivities, filter]
   )
 
-  // Auto-select first activity when entering map mode or when filtered set changes
+  const rosterActivities = useMemo<StravaActivity[]>(
+    () => allActivities.filter((a) => roster.has(a.id)),
+    [allActivities, roster]
+  )
+
+  const toggleRoster = useCallback((id: number) => {
+    setRoster((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else if (next.size < ROSTER_CAPACITY) {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  // Auto-select first activity when entering map mode or when roster changes
   useEffect(() => {
-    if (plotMode === 'map' && filteredActivities.length > 0) {
+    if (plotMode === 'map') {
+      const source = roster.size > 0 ? rosterActivities : filteredActivities
       setSelectedActivityId((prev) =>
-        filteredActivities.find((a) => a.id === prev) ? prev : filteredActivities[0].id
+        source.find((a) => a.id === prev) ? prev : (source[0]?.id ?? null)
       )
     }
-  }, [plotMode, filteredActivities])
+  }, [plotMode, filteredActivities, rosterActivities, roster])
 
-  // Fetch streams for series mode (multiple activities)
+  // Fetch streams for series mode — uses roster if non-empty
   const streamActivityIds = useMemo(
-    () => (plotMode === 'series' ? filteredActivities.slice(0, 20).map((a) => a.id) : []),
-    [filteredActivities, plotMode]
+    () => (plotMode === 'series' && roster.size > 0 ? rosterActivities.map((a) => a.id) : []),
+    [rosterActivities, roster.size, plotMode]
   )
   const { streams, loading: streamsLoading, error: streamsError } = useStreams(streamActivityIds)
 
   // Fetch single stream for map mode
   const { stream: mapStream, loading: mapStreamLoading, error: mapStreamError } = useStream(
-    plotMode === 'map' ? selectedActivityId : null
+    plotMode === 'map' && roster.size > 0 ? selectedActivityId : null
   )
 
-  const selectedActivity = filteredActivities.find((a) => a.id === selectedActivityId) ?? null
+  const mapSource = roster.size > 0 ? rosterActivities : []
+  const selectedActivity = mapSource.find((a) => a.id === selectedActivityId) ?? null
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -73,7 +96,7 @@ export default function Dashboard() {
 
         {/* Plot mode toggle */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {(['scatter', 'series', 'map'] as PlotMode[]).map((mode) => (
+          {(['scatter', 'table', 'series', 'map'] as PlotMode[]).map((mode) => (
             <button
               key={mode}
               onClick={() => setPlotMode(mode)}
@@ -156,33 +179,35 @@ export default function Dashboard() {
             filteredCount={filteredActivities.length}
           />
 
-          {/* Activity list — clickable in map mode, preview otherwise */}
-          {filteredActivities.length > 0 && (
+          <RosterPanel rosterActivities={rosterActivities} onRemove={toggleRoster} />
+
+          {/* Activity list — map mode: select from roster; scatter/table modes: hide (table IS the list) */}
+          {plotMode === 'map' && (
             <div className="mt-4 space-y-1">
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                {plotMode === 'map' ? 'Select activity' : 'Recent matches'}
+                Select activity
               </p>
-              {filteredActivities.slice(0, plotMode === 'map' ? 50 : 8).map((a) => (
-                <div
-                  key={a.id}
-                  onClick={() => plotMode === 'map' && setSelectedActivityId(a.id)}
-                  className={`text-xs py-1.5 px-2 rounded ${
-                    plotMode === 'map'
-                      ? `cursor-pointer ${
-                          a.id === selectedActivityId
-                            ? 'bg-orange-50 border border-orange-200'
-                            : 'hover:bg-gray-50'
-                        }`
-                      : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <p className="font-medium text-gray-700 truncate">{a.name}</p>
-                  <p className="text-gray-400">
-                    {new Date(a.start_date).toLocaleDateString()} ·{' '}
-                    {(a.distance / 1000).toFixed(1)} km
-                  </p>
-                </div>
-              ))}
+              {rosterActivities.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">Add runs to the roster first.</p>
+              ) : (
+                rosterActivities.map((a) => (
+                  <div
+                    key={a.id}
+                    onClick={() => setSelectedActivityId(a.id)}
+                    className={`text-xs py-1.5 px-2 rounded cursor-pointer ${
+                      a.id === selectedActivityId
+                        ? 'bg-orange-50 border border-orange-200'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <p className="font-medium text-gray-700 truncate">{a.name}</p>
+                    <p className="text-gray-400">
+                      {new Date(a.start_date).toLocaleDateString()} ·{' '}
+                      {(a.distance / 1000).toFixed(1)} km
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </aside>
@@ -206,9 +231,23 @@ export default function Dashboard() {
               activities={filteredActivities}
               athlete={athlete ?? null}
               showWMA={showWMA}
+              roster={roster}
+              onToggleRoster={toggleRoster}
+            />
+          ) : plotMode === 'table' ? (
+            <ActivityTable
+              activities={filteredActivities}
+              roster={roster}
+              onToggleRoster={toggleRoster}
             />
           ) : plotMode === 'series' ? (
-            streamsError ? (
+            roster.size === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
+                Add runs to the roster to compare them here.
+                <br />
+                <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
+              </div>
+            ) : streamsError ? (
               <div className="h-full flex items-center justify-center">
                 <p className="text-sm text-red-500">
                   {streamsError === 'RATE_LIMITED'
@@ -220,15 +259,17 @@ export default function Dashboard() {
               </div>
             ) : (
               <SeriesPlot
-                activities={filteredActivities}
+                activities={rosterActivities}
                 streams={streams}
                 loading={streamsLoading}
               />
             )
           ) : plotMode === 'map' ? (
-            filteredActivities.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                No activities match the current filters
+            roster.size === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
+                Add runs to the roster to view them on the map.
+                <br />
+                <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
               </div>
             ) : mapStreamError ? (
               <div className="h-full flex items-center justify-center">

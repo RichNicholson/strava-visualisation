@@ -25,7 +25,7 @@ const noFilter: FilterState = {
   dateRange: null,
   distanceRange: null,
   sport: [],
-  pace: null,
+  pace: { average: null },
 }
 
 describe('applyFilter', () => {
@@ -93,21 +93,7 @@ describe('applyFilter', () => {
     ]
     const result = applyFilter(activities, {
       ...noFilter,
-      pace: { mode: 'average', range: { min: 270, max: 330 } },
-    })
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe(2)
-  })
-
-  it('filters by best split pace', () => {
-    const activities = [
-      makeActivity({ id: 1, best_splits: { '1000': 240 } }),  // 4:00/km
-      makeActivity({ id: 2, best_splits: { '1000': 300 } }),  // 5:00/km — in range
-      makeActivity({ id: 3 }),                                  // no split data — excluded
-    ]
-    const result = applyFilter(activities, {
-      ...noFilter,
-      pace: { mode: 'best_split', splitDistance: 1000, range: { min: 270, max: 330 } },
+      pace: { average: { min: 270, max: 330 } },
     })
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe(2)

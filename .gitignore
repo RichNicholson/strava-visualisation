@@ -24,6 +24,13 @@
 .DS_Store
 *.pem
 
+# local editor / tooling
+.vscode/
+.claude/
+
+# Windows zone identifier metadata
+*:Zone.Identifier
+
 # debug
 npm-debug.log*
 yarn-debug.log*

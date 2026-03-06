@@ -18,7 +18,7 @@ interface SeriesPlotProps {
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
 
 const Y_LABELS: Record<YMetric, string> = {
-  pace: 'Pace (min/km)',
+  pace: 'Cumulative Pace (min/km)',
   heartrate: 'Heart Rate (bpm)',
   elevation: 'Elevation (m)',
   cadence: 'Cadence (spm)',
@@ -70,8 +70,13 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
 
       switch (yMetric) {
         case 'pace':
-          // velocity_smooth is m/s, convert to s/km (pace = 1000/speed)
-          yData = stream.velocity_smooth?.map((v) => (v > 0 ? 1000 / v : NaN))
+          // Cumulative pace: elapsed time / distance covered, in s/km
+          yData =
+            stream.time && stream.distance
+              ? stream.distance.map((d, i) =>
+                  d > 0 ? (stream.time![i] / d) * 1000 : NaN
+                )
+              : undefined
           break
         case 'heartrate':
           yData = stream.heartrate
@@ -112,17 +117,23 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
 
     const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
 
-    // Grid
+    // Vertical grid lines
     g.append('g')
-      .call(d3.axisLeft(yScale).ticks(6).tickSize(-innerW).tickFormat(() => ''))
-      .selectAll('line')
-      .attr('stroke', '#f3f4f6')
+      .attr('class', 'grid-x')
+      .attr('transform', `translate(0,${innerH})`)
+      .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+
+    // Horizontal grid lines
+    g.append('g')
+      .call(d3.axisLeft(yScale).ticks(12).tickSize(-innerW).tickFormat(() => ''))
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
 
     // Axes
     const xLabel = xMetric === 'distance' ? 'Distance (m)' : 'Time (s)'
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
-      .call(d3.axisBottom(xScale).ticks(8))
+      .call(d3.axisBottom(xScale).ticks(16))
       .call((ax) =>
         ax.append('text')
           .attr('x', innerW / 2).attr('y', 40)
@@ -138,7 +149,7 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
       : undefined
 
     g.append('g')
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(yFmtFn as never))
+      .call(d3.axisLeft(yScale).ticks(12).tickFormat(yFmtFn as never))
       .call((ax) =>
         ax.append('text')
           .attr('transform', 'rotate(-90)')

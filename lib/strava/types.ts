@@ -18,8 +18,6 @@ export interface StravaActivity {
     id: string
     summary_polyline: string
   }
-  // Computed fields stored alongside
-  best_splits?: Record<string, number> // key = "Xm" metres, value = s/km
 }
 
 export interface ActivityStream {
@@ -51,10 +49,8 @@ export interface FilterState {
   distanceRange: { min: number; max: number } | null // metres
   sport: string[]
   pace: {
-    mode: 'average' | 'best_split'
-    splitDistance?: number // metres
-    range: { min: number; max: number } // seconds/km
-  } | null
+    average: { min: number; max: number } | null // seconds/km; null = disabled
+  }
 }
 
 export type MetricKey =

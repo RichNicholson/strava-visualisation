@@ -8,6 +8,7 @@ interface RangeSliderProps {
   value: [number, number]
   onChange: (value: [number, number]) => void
   formatValue?: (v: number) => string
+  parseValue?: (raw: string) => number | null
   step?: number
 }
 
@@ -17,9 +18,12 @@ export function RangeSlider({
   value,
   onChange,
   formatValue = (v) => String(Math.round(v)),
+  parseValue,
   step = 1,
 }: RangeSliderProps) {
   const [, setDragging] = useState<'min' | 'max' | null>(null)
+  const [minText, setMinText] = useState<string | null>(null)
+  const [maxText, setMaxText] = useState<string | null>(null)
   const rangeRef = useRef<HTMLDivElement>(null)
 
   const getPercent = (v: number) => ((v - min) / (max - min)) * 100
@@ -39,6 +43,24 @@ export function RangeSlider({
     },
     [value, onChange, step]
   )
+
+  function commitMin(raw: string) {
+    if (!parseValue) return
+    const v = parseValue(raw)
+    if (v === null) { setMinText(null); return }
+    const clamped = Math.min(Math.max(v, min), value[1] - step)
+    onChange([clamped, value[1]])
+    setMinText(null)
+  }
+
+  function commitMax(raw: string) {
+    if (!parseValue) return
+    const v = parseValue(raw)
+    if (v === null) { setMaxText(null); return }
+    const clamped = Math.max(Math.min(v, max), value[0] + step)
+    onChange([value[0], clamped])
+    setMaxText(null)
+  }
 
   const minPct = getPercent(value[0])
   const maxPct = getPercent(value[1])
@@ -79,8 +101,32 @@ export function RangeSlider({
         />
       </div>
       <div className="flex justify-between text-xs text-gray-500 mt-1">
-        <span>{formatValue(value[0])}</span>
-        <span>{formatValue(value[1])}</span>
+        {parseValue ? (
+          <input
+            type="text"
+            value={minText ?? formatValue(value[0])}
+            onChange={(e) => setMinText(e.target.value)}
+            onFocus={(e) => { setMinText(formatValue(value[0])); e.target.select() }}
+            onBlur={(e) => commitMin(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitMin((e.target as HTMLInputElement).value) }}
+            className="w-20 bg-transparent border-b border-gray-300 focus:border-orange-400 outline-none text-gray-500 text-xs"
+          />
+        ) : (
+          <span>{formatValue(value[0])}</span>
+        )}
+        {parseValue ? (
+          <input
+            type="text"
+            value={maxText ?? formatValue(value[1])}
+            onChange={(e) => setMaxText(e.target.value)}
+            onFocus={(e) => { setMaxText(formatValue(value[1])); e.target.select() }}
+            onBlur={(e) => commitMax(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitMax((e.target as HTMLInputElement).value) }}
+            className="w-20 text-right bg-transparent border-b border-gray-300 focus:border-orange-400 outline-none text-gray-500 text-xs"
+          />
+        ) : (
+          <span>{formatValue(value[1])}</span>
+        )}
       </div>
     </div>
   )

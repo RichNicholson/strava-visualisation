@@ -4,7 +4,14 @@
       "Bash(pnpm exec:*)",
       "Bash(git:*)",
       "Bash(pnpm add:*)",
-      "Bash(pnpm test:*)"
+      "Bash(pnpm test:*)",
+      "Bash(pdftotext:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(node:*)",
+      "Bash(npx:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm tsc:*)"
     ]
   }
 }
