@@ -273,6 +273,7 @@ export default function Dashboard() {
                 streams={streams}
                 loading={streamsLoading}
                 colorMap={colorMap}
+                athlete={athlete ?? null}
               />
             )
           ) : plotMode === 'map' ? (
