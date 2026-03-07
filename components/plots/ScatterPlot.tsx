@@ -33,9 +33,10 @@ interface ScatterPlotProps {
   showWMA?: boolean
   roster?: Set<number>
   onToggleRoster?: (id: number) => void
+  colorMap?: Map<number, string>
 }
 
-export function ScatterPlot({ activities, athlete, showWMA = true, roster, onToggleRoster }: ScatterPlotProps) {
+export function ScatterPlot({ activities, athlete, showWMA = true, roster, onToggleRoster, colorMap }: ScatterPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Stable ref for the toggle callback — keeps it out of the useEffect dep array
@@ -227,7 +228,8 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
 
     let colorFn: (a: StravaActivity, i: number) => string
     if (colorMetric === 'index') {
-      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme]).domain([0, plotActivities.length])
+      // Reverse domain so recent runs (low index) are darker
+      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme]).domain([plotActivities.length, 0])
       colorFn = (_, i) => cs(i)
     } else {
       const cVals = plotActivities.map((a) => getMetricValue(a, colorMetric as MetricKey))
@@ -254,66 +256,102 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     const inBoundsData  = plotData.filter((d) => !d.oob)
     const outBoundsData = plotData.filter((d) =>  d.oob)
 
-    // ── In-bounds: circles ────────────────────────────────────────────────────
-    dotsGroup.selectAll('circle')
-      .data(inBoundsData)
-      .join('circle')
-      .attr('cx', (d) => d.cx)
-      .attr('cy', (d) => d.cy)
-      .attr('r', (d) => roster?.has(d.activity.id) ? 7 : 5)
-      .attr('fill', (d) => colorFn(d.activity, d.idx))
-      .attr('stroke', (d) => roster?.has(d.activity.id) ? '#f97316' : 'white')
-      .attr('stroke-width', (d) => roster?.has(d.activity.id) ? 2.5 : 1)
-      .attr('opacity', 0.9)
-      .style('cursor', 'pointer')
-      .on('click', function (event: MouseEvent, d) {
-        event.stopPropagation()
-        onToggleRosterRef.current?.(d.activity.id)
-      })
-      .on('mouseenter', function (event: MouseEvent, d) {
-        d3.select(this).attr('r', roster?.has(d.activity.id) ? 9 : 7).attr('opacity', 1)
-        const rect = svgRef.current!.getBoundingClientRect()
-        setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
-      })
-      .on('mouseleave', function (event: MouseEvent, d) {
-        d3.select(this).attr('r', roster?.has(d.activity.id) ? 7 : 5).attr('opacity', 0.9)
-        setTooltip(null)
-      })
+    // Split for z-order: unselected first, then selected on top
+    const inBoundsUnselected = inBoundsData.filter((d) => !roster?.has(d.activity.id))
+    const inBoundsSelected = inBoundsData.filter((d) => roster?.has(d.activity.id))
+    const outBoundsUnselected = outBoundsData.filter((d) => !roster?.has(d.activity.id))
+    const outBoundsSelected = outBoundsData.filter((d) => roster?.has(d.activity.id))
 
-    // ── Out-of-bounds: × markers clamped to perimeter ────────────────────────
+    // ── In-bounds: circles (unselected, then selected) ───────────────────────
+    const renderCircles = (data: typeof inBoundsData, selected: boolean) => {
+      dotsGroup.selectAll(selected ? 'circle.selected' : 'circle.unselected')
+        .data(data)
+        .join('circle')
+        .attr('class', selected ? 'selected' : 'unselected')
+        .attr('cx', (d) => d.cx)
+        .attr('cy', (d) => d.cy)
+        .attr('r', selected ? 8 : 5)
+        .attr('fill', (d) => {
+          if (selected && colorMap) {
+            return colorMap.get(d.activity.id) ?? colorFn(d.activity, d.idx)
+          }
+          return colorFn(d.activity, d.idx)
+        })
+        .attr('stroke', 'white')
+        .attr('stroke-width', 1)
+        .attr('opacity', 0.9)
+        .style('cursor', 'pointer')
+        .on('click', function (event: MouseEvent, d) {
+          event.stopPropagation()
+          onToggleRosterRef.current?.(d.activity.id)
+        })
+        .on('contextmenu', function (event: MouseEvent, d) {
+          event.preventDefault()
+          event.stopPropagation()
+          window.open(`https://www.strava.com/activities/${d.activity.id}`, '_blank', 'noopener')
+        })
+        .on('mouseenter', function (event: MouseEvent, d) {
+          const rect = svgRef.current!.getBoundingClientRect()
+          setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
+        })
+        .on('mouseleave', function (event: MouseEvent, d) {
+          d3.select(this).attr('r', selected ? 8 : 5).attr('opacity', 0.9)
+          setTooltip(null)
+        })
+    }
+
+    renderCircles(inBoundsUnselected, false)
+    renderCircles(inBoundsSelected, true)
+
+    // ── Out-of-bounds: × markers clamped to perimeter (unselected, then selected) ────
     const S = 5  // half-size of the × arms
     const crossPath = `M${-S},${-S}L${S},${S}M${-S},${S}L${S},${-S}`
 
-    crossGroup.selectAll('g.oob')
-      .data(outBoundsData)
-      .join('g')
-      .attr('class', 'oob')
-      .attr('transform', (d) => `translate(${d.cx},${d.cy})`)
-      .style('cursor', 'pointer')
-      .each(function (d) {
-        const el = d3.select(this)
-        const color = colorFn(d.activity, d.idx)
-        // White halo for contrast against the axis
-        el.append('path').attr('d', crossPath)
-          .attr('stroke', 'white').attr('stroke-width', 3.5).attr('fill', 'none')
-        el.append('path').attr('d', crossPath)
-          .attr('stroke', color).attr('stroke-width', 2).attr('fill', 'none').attr('opacity', 0.9)
-      })
-      .on('mouseenter', function (event: MouseEvent, d) {
-        d3.select(this).selectAll('path:last-child').attr('stroke-width', 3).attr('opacity', 1)
-        const rect = svgRef.current!.getBoundingClientRect()
-        setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
-      })
-      .on('mouseleave', function () {
-        d3.select(this).selectAll('path:last-child').attr('stroke-width', 2).attr('opacity', 0.9)
-        setTooltip(null)
-      })
-      .on('click', function (event: MouseEvent, d) {
-        event.stopPropagation()
-        onToggleRosterRef.current?.(d.activity.id)
-      })
+    const renderCrosses = (data: typeof outBoundsData, selected: boolean) => {
+      crossGroup.selectAll(selected ? 'g.oob-selected' : 'g.oob-unselected')
+        .data(data)
+        .join('g')
+        .attr('class', selected ? 'oob-selected' : 'oob-unselected')
+        .attr('transform', (d) => `translate(${d.cx},${d.cy})`)
+        .style('cursor', 'pointer')
+        .each(function (d) {
+          const el = d3.select(this)
+          let color = colorFn(d.activity, d.idx)
+          if (selected && colorMap) {
+            color = colorMap.get(d.activity.id) ?? color
+          }
+          // White halo for contrast against the axis
+          el.append('path').attr('d', crossPath)
+            .attr('stroke', 'white').attr('stroke-width', selected ? 4.5 : 3.5).attr('fill', 'none')
+          el.append('path').attr('d', crossPath)
+            .attr('stroke', color).attr('stroke-width', selected ? 3 : 2).attr('fill', 'none').attr('opacity', 0.9)
+        })
+        .on('mouseenter', function (event: MouseEvent, d) {
+          const hoverWidth = selected ? 4 : 3
+          d3.select(this).selectAll('path:last-child').attr('stroke-width', hoverWidth).attr('opacity', 1)
+          const rect = svgRef.current!.getBoundingClientRect()
+          setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
+        })
+        .on('mouseleave', function (_event: MouseEvent, d) {
+          const baseWidth = selected ? 3 : 2
+          d3.select(this).selectAll('path:last-child').attr('stroke-width', baseWidth).attr('opacity', 0.9)
+          setTooltip(null)
+        })
+        .on('click', function (event: MouseEvent, d) {
+          event.stopPropagation()
+          onToggleRosterRef.current?.(d.activity.id)
+        })
+        .on('contextmenu', function (event: MouseEvent, d) {
+          event.preventDefault()
+          event.stopPropagation()
+          window.open(`https://www.strava.com/activities/${d.activity.id}`, '_blank', 'noopener')
+        })
+    }
 
-  }, [activities, xAxis, yAxis, athlete, showWMA, colorMetric, colorScheme, viewDomain, roster])
+    renderCrosses(outBoundsUnselected, false)
+    renderCrosses(outBoundsSelected, true)
+
+  }, [activities, xAxis, yAxis, athlete, showWMA, colorMetric, colorScheme, viewDomain, roster, colorMap])
 
   const autoScale = () => setViewDomain(null)
 
@@ -432,6 +470,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
                 })()}
               </p>
             )}
+            <p className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-100">Right click to view in Strava</p>
           </div>
         )}
 

@@ -8,9 +8,12 @@ export const ROSTER_CAPACITY = 10
 interface RosterPanelProps {
   rosterActivities: StravaActivity[]
   onRemove: (id: number) => void
+  colorMap?: Map<number, string>
+  selectedId?: number | null
+  onSelect?: (id: number) => void
 }
 
-export function RosterPanel({ rosterActivities, onRemove }: RosterPanelProps) {
+export function RosterPanel({ rosterActivities, onRemove, colorMap, selectedId, onSelect }: RosterPanelProps) {
   const count = rosterActivities.length
 
   return (
@@ -36,11 +39,25 @@ export function RosterPanel({ rosterActivities, onRemove }: RosterPanelProps) {
         <ul className="space-y-1">
           {rosterActivities.map((a) => {
             const pace = a.average_speed > 0 ? 1000 / a.average_speed : null
+            const isSelected = selectedId === a.id
             return (
               <li
                 key={a.id}
-                className="flex items-center gap-1.5 group py-1 px-2 rounded hover:bg-orange-50 transition-colors"
+                onClick={() => onSelect?.(a.id)}
+                className={`flex items-center gap-1.5 group py-1 px-2 rounded transition-colors ${
+                  isSelected
+                    ? 'bg-orange-50 border border-orange-200'
+                    : onSelect
+                    ? 'cursor-pointer hover:bg-orange-50'
+                    : 'hover:bg-orange-50'
+                }`}
               >
+                {colorMap && (
+                  <span
+                    className="flex-shrink-0 w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: colorMap.get(a.id) ?? '#ccc' }}
+                  />
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-700 truncate">{a.name}</p>
                   <p className="text-xs text-gray-400">

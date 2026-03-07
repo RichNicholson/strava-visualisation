@@ -7,13 +7,13 @@ export function useStravaSync() {
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
 
-  const startSync = useCallback(async () => {
+  const startSync = useCallback(async (forceFullSync = false) => {
     const token = getAccessToken()
     if (!token) return
 
     setIsSyncing(true)
     try {
-      await syncActivities(token, setProgress)
+      await syncActivities(token, setProgress, forceFullSync)
     } catch (err) {
       setProgress({
         phase: 'error',

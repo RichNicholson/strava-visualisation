@@ -28,7 +28,8 @@ export function getAccessToken(): string | null {
 
 export async function syncActivities(
   accessToken: string,
-  onProgress?: SyncProgressCallback
+  onProgress?: SyncProgressCallback,
+  forceFullSync = false
 ): Promise<void> {
   onProgress?.({ phase: 'athlete', activitiesFetched: 0 })
 
@@ -45,9 +46,16 @@ export async function syncActivities(
   })
 
   // Find the most recent activity we have to support incremental sync
+  // Subtract 1 hour safety margin to ensure we don't miss activities due to timing/timezone issues
+  // If forceFullSync=true, clear all data and fetch everything
+  if (forceFullSync) {
+    await db.activities.clear()
+    await db.streams.clear()
+  }
+
   const mostRecent = await db.activities.orderBy('start_date').last()
   const after = mostRecent
-    ? Math.floor(new Date(mostRecent.start_date).getTime() / 1000)
+    ? Math.floor(new Date(mostRecent.start_date).getTime() / 1000) - 3600 // 1 hour buffer
     : undefined
 
   let page = 1
@@ -64,7 +72,13 @@ export async function syncActivities(
     totalFetched += batch.length
     onProgress?.({ phase: 'activities', activitiesFetched: totalFetched })
 
-    await db.activities.bulkPut(batch)
+    try {
+      await db.activities.bulkPut(batch)
+    } catch (err) {
+      console.error('[Sync] bulkPut failed:', err)
+      throw err
+    }
+    
     page++
 
     if (batch.length < 100) break

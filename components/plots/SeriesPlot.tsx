@@ -7,12 +7,12 @@ import type { ActivityStream } from '../../lib/strava/types'
 
 type YMetric = 'pace' | 'heartrate' | 'elevation' | 'cadence'
 type XMetric = 'distance' | 'time'
-type LineMode = 'raw' | 'rolling'
 
 interface SeriesPlotProps {
   activities: StravaActivity[]
   streams: Map<number, ActivityStream>
   loading?: boolean
+  colorMap?: Map<number, string>
 }
 
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
@@ -33,13 +33,15 @@ function rollingAvg(data: number[], windowSize: number): number[] {
   })
 }
 
-export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
+export function SeriesPlot({ activities, streams, loading, colorMap }: SeriesPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const [yMetric, setYMetric] = useState<YMetric>('pace')
   const [xMetric, setXMetric] = useState<XMetric>('distance')
-  const [lineMode, setLineMode] = useState<LineMode>('rolling')
-  const [rollingWindow, setRollingWindow] = useState(50) // data points
+  const lineMode = 'rolling' as const
+  const rollingWindow = 50
+  const autoscale = true
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -109,9 +111,11 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
     const xScale = d3.scaleLinear().domain([0, d3.max(allX)!]).range([0, innerW])
     const isPace = yMetric === 'pace'
 
-    // Pace: invert (faster = lower number = top)
+    // Pace: invert (faster = lower number = top). When autoscale is off, pin top to 0.
     const yDomain: [number, number] = isPace
-      ? [d3.max(allY)!, 0]
+      ? autoscale
+        ? [d3.max(allY)! * 1.02, d3.min(allY)! * 0.98]
+        : [d3.max(allY)!, 0]
       : [d3.min(allY)! * 0.95, d3.max(allY)! * 1.05]
     const yScale = d3.scaleLinear().domain(yDomain).range([innerH, 0]).nice()
 
@@ -130,10 +134,18 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
       .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
 
     // Axes
-    const xLabel = xMetric === 'distance' ? 'Distance (m)' : 'Time (s)'
+    const xLabel = xMetric === 'distance' ? 'Distance (km)' : 'Time'
+    const xFmtFn = xMetric === 'distance'
+      ? (d: d3.NumberValue) => `${(Number(d) / 1000).toFixed(1)}`
+      : (d: d3.NumberValue) => {
+          const totalMins = Math.round(Number(d) / 60)
+          const h = Math.floor(totalMins / 60)
+          const m = totalMins % 60
+          return h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m}m`
+        }
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
-      .call(d3.axisBottom(xScale).ticks(16))
+      .call(d3.axisBottom(xScale).ticks(16).tickFormat(xFmtFn as never))
       .call((ax) =>
         ax.append('text')
           .attr('x', innerW / 2).attr('y', 40)
@@ -166,16 +178,62 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
       .defined((d) => isFinite(d.y))
       .curve(d3.curveCatmullRom)
 
+    const tooltip = tooltipRef.current
+
     series.forEach((s, i) => {
+      const color = colorMap?.get(s.id) ?? colorScale(String(i))
+
+      // Invisible wide path for easier hover hit area
       g.append('path')
         .datum(s.points)
         .attr('fill', 'none')
-        .attr('stroke', colorScale(String(i)))
+        .attr('stroke', 'transparent')
+        .attr('stroke-width', 12)
+        .attr('d', lineGen)
+        .style('cursor', 'pointer')
+        .on('mouseenter', function (event) {
+          // Dim all other lines
+          g.selectAll<SVGPathElement, unknown>('path.series-line')
+            .attr('opacity', 0.2)
+            .attr('stroke-width', 1.5)
+          // Highlight this line
+          g.selectAll<SVGPathElement, Point[]>('path.series-line')
+            .filter((_, j) => j === i)
+            .attr('opacity', 1)
+            .attr('stroke-width', 3)
+          // Show tooltip
+          if (tooltip) {
+            tooltip.style.display = 'block'
+            tooltip.style.borderColor = color
+            tooltip.textContent = s.name
+          }
+        })
+        .on('mousemove', function (event) {
+          if (tooltip) {
+            const [mx, my] = d3.pointer(event, containerRef.current!)
+            tooltip.style.left = `${mx + 14}px`
+            tooltip.style.top = `${my - 10}px`
+          }
+        })
+        .on('mouseleave', function () {
+          g.selectAll<SVGPathElement, unknown>('path.series-line')
+            .attr('opacity', 0.8)
+            .attr('stroke-width', 1.5)
+          if (tooltip) tooltip.style.display = 'none'
+        })
+
+      // Visible line
+      g.append('path')
+        .datum(s.points)
+        .attr('class', 'series-line')
+        .attr('fill', 'none')
+        .attr('stroke', color)
         .attr('stroke-width', 1.5)
         .attr('opacity', 0.8)
+        .style('pointer-events', 'none')
         .attr('d', lineGen)
     })
-  }, [activities, streams, yMetric, xMetric, lineMode, rollingWindow])
+  }, [activities, streams, yMetric, xMetric])
 
   return (
     <div className="flex flex-col h-full">
@@ -209,43 +267,17 @@ export function SeriesPlot({ activities, streams, loading }: SeriesPlotProps) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">Mode:</span>
-          <button
-            onClick={() => setLineMode('raw')}
-            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-              lineMode === 'raw' ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
-            }`}
-          >
-            Raw
-          </button>
-          <button
-            onClick={() => setLineMode('rolling')}
-            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-              lineMode === 'rolling' ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
-            }`}
-          >
-            Smooth
-          </button>
-        </div>
-        {lineMode === 'rolling' && (
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">Window:</span>
-            <input
-              type="range"
-              min={10}
-              max={200}
-              value={rollingWindow}
-              onChange={(e) => setRollingWindow(Number(e.target.value))}
-              className="w-20 accent-orange-500"
-            />
-            <span className="text-xs text-gray-400">{rollingWindow}pt</span>
-          </div>
-        )}
+
       </div>
 
       {/* Plot */}
       <div ref={containerRef} className="flex-1 relative min-h-0">
+        {/* Hover tooltip */}
+        <div
+          ref={tooltipRef}
+          style={{ display: 'none' }}
+          className="pointer-events-none absolute z-20 bg-white text-xs text-gray-700 font-medium px-2 py-1 rounded shadow border"
+        />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
             <span className="text-gray-500 text-sm">Loading stream data...</span>

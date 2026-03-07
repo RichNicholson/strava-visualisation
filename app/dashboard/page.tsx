@@ -1,6 +1,12 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
+
+// Matches d3.schemeTableau10 — stable colour palette for roster/series
+const TABLEAU10 = [
+  '#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f',
+  '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ac',
+]
 import { FilterPanel } from '../../components/filter/FilterPanel'
 import { ScatterPlot } from '../../components/plots/ScatterPlot'
 import { SeriesPlot } from '../../components/plots/SeriesPlot'
@@ -40,6 +46,8 @@ export default function Dashboard() {
   const [showWMA, setShowWMA] = useState(true)
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
   const [roster, setRoster] = useState<Set<number>>(new Set())
+  // Stable color assignments: activityId -> colorIndex (0-9)
+  const [colorAssignments, setColorAssignments] = useState<Map<number, number>>(new Map())
 
   const filteredActivities = useMemo(
     () => applyFilter(allActivities, filter),
@@ -49,6 +57,13 @@ export default function Dashboard() {
   const rosterActivities = useMemo<StravaActivity[]>(
     () => allActivities.filter((a) => roster.has(a.id)),
     [allActivities, roster]
+  )
+
+  const colorMap = useMemo<Map<number, string>>(
+    () => new Map(
+      Array.from(colorAssignments.entries()).map(([id, idx]) => [id, TABLEAU10[idx]])
+    ),
+    [colorAssignments]
   )
 
   const toggleRoster = useCallback((id: number) => {
@@ -61,7 +76,23 @@ export default function Dashboard() {
       }
       return next
     })
-  }, [])
+    setColorAssignments((prev) => {
+      const next = new Map(prev)
+      if (next.has(id)) {
+        // Remove: free up this color
+        next.delete(id)
+      } else if (roster.size < ROSTER_CAPACITY) {
+        // Add: assign next available color index
+        const usedIndices = new Set(next.values())
+        let colorIdx = 0
+        while (usedIndices.has(colorIdx) && colorIdx < TABLEAU10.length) {
+          colorIdx++
+        }
+        next.set(id, colorIdx)
+      }
+      return next
+    })
+  }, [roster.size])
 
   // Auto-select first activity when entering map mode or when roster changes
   useEffect(() => {
@@ -145,9 +176,10 @@ export default function Dashboard() {
           ) : null}
 
           <button
-            onClick={startSync}
+            onClick={(e) => startSync(e.shiftKey)}
             disabled={isSyncing}
             className="px-3 py-1.5 text-sm bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-lg transition-colors"
+            title={isSyncing ? 'Syncing...' : 'Sync new activities (Shift+Click for full resync)'}
           >
             {isSyncing ? 'Syncing...' : allActivities.length === 0 ? 'Sync Activities' : 'Re-sync'}
           </button>
@@ -179,37 +211,13 @@ export default function Dashboard() {
             filteredCount={filteredActivities.length}
           />
 
-          <RosterPanel rosterActivities={rosterActivities} onRemove={toggleRoster} />
-
-          {/* Activity list — map mode: select from roster; scatter/table modes: hide (table IS the list) */}
-          {plotMode === 'map' && (
-            <div className="mt-4 space-y-1">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                Select activity
-              </p>
-              {rosterActivities.length === 0 ? (
-                <p className="text-xs text-gray-400 italic">Add runs to the roster first.</p>
-              ) : (
-                rosterActivities.map((a) => (
-                  <div
-                    key={a.id}
-                    onClick={() => setSelectedActivityId(a.id)}
-                    className={`text-xs py-1.5 px-2 rounded cursor-pointer ${
-                      a.id === selectedActivityId
-                        ? 'bg-orange-50 border border-orange-200'
-                        : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <p className="font-medium text-gray-700 truncate">{a.name}</p>
-                    <p className="text-gray-400">
-                      {new Date(a.start_date).toLocaleDateString()} ·{' '}
-                      {(a.distance / 1000).toFixed(1)} km
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+          <RosterPanel
+            rosterActivities={rosterActivities}
+            onRemove={toggleRoster}
+            colorMap={colorMap}
+            selectedId={plotMode === 'map' ? selectedActivityId : undefined}
+            onSelect={plotMode === 'map' ? setSelectedActivityId : undefined}
+          />
         </aside>
 
         {/* Plot area */}
@@ -219,8 +227,9 @@ export default function Dashboard() {
               <div className="text-center space-y-4">
                 <p className="text-gray-500">No activities yet. Click &quot;Sync Activities&quot; to load your Strava data.</p>
                 <button
-                  onClick={startSync}
+                  onClick={(e) => startSync(e.shiftKey)}
                   className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors"
+                  title="Sync activities from Strava (Shift+Click for full resync)"
                 >
                   Sync from Strava
                 </button>
@@ -233,6 +242,7 @@ export default function Dashboard() {
               showWMA={showWMA}
               roster={roster}
               onToggleRoster={toggleRoster}
+              colorMap={colorMap}
             />
           ) : plotMode === 'table' ? (
             <ActivityTable
@@ -262,6 +272,7 @@ export default function Dashboard() {
                 activities={rosterActivities}
                 streams={streams}
                 loading={streamsLoading}
+                colorMap={colorMap}
               />
             )
           ) : plotMode === 'map' ? (
