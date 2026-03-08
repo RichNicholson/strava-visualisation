@@ -1,18 +1,32 @@
 'use client'
 
 import { useState } from 'react'
-import { db } from '../../lib/db/schema'
+import { db, clearAll } from '../../lib/db/schema'
 import type { Athlete } from '../../lib/strava/types'
 
 interface SettingsPanelProps {
   athlete: Athlete | null
   onClose: () => void
+  onFullResync: () => void
 }
 
-export function SettingsPanel({ athlete, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ athlete, onClose, onFullResync }: SettingsPanelProps) {
   const [dateOfBirth, setDateOfBirth] = useState(athlete?.dateOfBirth ?? '')
   const [sex, setSex] = useState<'M' | 'F'>(athlete?.sex ?? 'M')
   const [saving, setSaving] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
+
+  async function handleClearData() {
+    setClearing(true)
+    await clearAll()
+    window.location.href = '/'
+  }
+
+  function handleFullResync() {
+    onClose()
+    onFullResync()
+  }
 
   async function save() {
     if (!athlete) return
@@ -105,6 +119,49 @@ export function SettingsPanel({ athlete, onClose }: SettingsPanelProps) {
             Connect with Strava first to save settings.
           </p>
         )}
+
+        {/* Data management */}
+        <div className="border-t border-gray-100 pt-4 space-y-2">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Data</p>
+
+          <button
+            onClick={handleFullResync}
+            className="w-full py-2 border border-gray-200 text-sm text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+          >
+            Re-sync all
+          </button>
+
+          {!confirmClear ? (
+            <button
+              onClick={() => setConfirmClear(true)}
+              className="w-full py-2 border border-red-200 text-sm text-red-600 rounded-xl hover:bg-red-50 transition-colors"
+            >
+              Clear data
+            </button>
+          ) : (
+            <div className="rounded-xl border border-red-200 p-3 space-y-2 bg-red-50">
+              <p className="text-sm text-red-700">
+                This will delete all local activities, streams, and your profile. Are you sure?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmClear(false)}
+                  disabled={clearing}
+                  className="flex-1 py-1.5 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleClearData}
+                  disabled={clearing}
+                  className="flex-1 py-1.5 text-sm bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg transition-colors"
+                >
+                  {clearing ? 'Clearing…' : 'Yes, clear all'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -31,6 +31,16 @@ export function applyFilter(activities: StravaActivity[], filter: FilterState): 
       if (pace < filter.pace.average.min || pace > filter.pace.average.max) return false
     }
 
+    // Heart rate filter
+    if (filter.heartrate) {
+      if (a.average_heartrate == null) {
+        // Activity has no HR data — include only if explicitly opted in
+        if (!filter.heartrate.includeNoHR) return false
+      } else {
+        if (a.average_heartrate < filter.heartrate.min || a.average_heartrate > filter.heartrate.max) return false
+      }
+    }
+
     return true
   })
 }
@@ -68,4 +78,13 @@ export function getAveragePaceBounds(activities: StravaActivity[]): { min: numbe
     .map((a) => 1000 / a.average_speed)
   if (paces.length === 0) return { min: 2 * 60, max: 12 * 60 }
   return { min: Math.min(...paces), max: Math.max(...paces) }
+}
+
+/** Returns the min/max average_heartrate across activities that have HR data, or null if none do. */
+export function getHeartRateBounds(activities: StravaActivity[]): { min: number; max: number } | null {
+  const hrs = activities
+    .filter((a) => a.average_heartrate != null)
+    .map((a) => a.average_heartrate!)
+  if (hrs.length === 0) return null
+  return { min: Math.floor(Math.min(...hrs)), max: Math.ceil(Math.max(...hrs)) }
 }

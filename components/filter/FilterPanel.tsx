@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import type { FilterState, StravaActivity } from '../../lib/strava/types'
-import { getSportTypes, getDateBounds } from '../../lib/analysis/filter'
+import { getSportTypes, getDateBounds, getHeartRateBounds } from '../../lib/analysis/filter'
 import { RangeSlider } from './RangeSlider'
 import { PaceFilterRow } from './PaceFilterRow'
 import { FilterPresets } from './FilterPresets'
@@ -55,6 +55,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
     [allActivities, filter.sport]
   )
   const dateBounds = useMemo(() => getDateBounds(sportFilteredActivities), [sportFilteredActivities])
+  const hrBounds = useMemo(() => getHeartRateBounds(sportFilteredActivities), [sportFilteredActivities])
 
   function setDateRange(range: [number, number]) {
     const from = new Date(range[0]).toISOString()
@@ -80,7 +81,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
   }
 
   function resetFilter() {
-    onChange({ dateRange: null, distanceRange: null, sport: [], pace: { average: { min: 3 * 60, max: 10 * 60 } } })
+    onChange({ dateRange: null, distanceRange: null, sport: [], pace: { average: { min: 3 * 60, max: 10 * 60 } }, heartrate: null })
   }
 
   const dateMin = new Date(dateBounds.min).getTime()
@@ -192,6 +193,48 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         currentFilter={filter}
         onLoad={onChange}
       />
+
+      {/* Heart rate */}
+      {hrBounds && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Heart Rate</p>
+          <RangeSlider
+            min={hrBounds.min}
+            max={hrBounds.max}
+            step={1}
+            value={[
+              filter.heartrate?.min ?? hrBounds.min,
+              filter.heartrate?.max ?? hrBounds.max,
+            ]}
+            onChange={([min, max]) =>
+              onChange({
+                ...filter,
+                heartrate: { min, max, includeNoHR: filter.heartrate?.includeNoHR ?? true },
+              })
+            }
+            formatValue={(v) => `${Math.round(v)} bpm`}
+            parseValue={(raw) => { const n = parseInt(raw); return isNaN(n) ? null : n }}
+          />
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={filter.heartrate?.includeNoHR ?? true}
+              onChange={(e) =>
+                onChange({
+                  ...filter,
+                  heartrate: {
+                    min: filter.heartrate?.min ?? hrBounds.min,
+                    max: filter.heartrate?.max ?? hrBounds.max,
+                    includeNoHR: e.target.checked,
+                  },
+                })
+              }
+              className="accent-orange-500"
+            />
+            Include runs without heart rate data
+          </label>
+        </div>
+      )}
     </div>
   )
 }

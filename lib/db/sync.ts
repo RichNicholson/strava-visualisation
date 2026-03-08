@@ -12,6 +12,7 @@ export interface SyncProgress {
   phase: 'athlete' | 'activities' | 'streams' | 'done' | 'error'
   activitiesFetched: number
   activitiesTotal?: number
+  importedActivities: StravaActivity[]
   error?: string
 }
 
@@ -31,7 +32,7 @@ export async function syncActivities(
   onProgress?: SyncProgressCallback,
   forceFullSync = false
 ): Promise<void> {
-  onProgress?.({ phase: 'athlete', activitiesFetched: 0 })
+  onProgress?.({ phase: 'athlete', activitiesFetched: 0, importedActivities: [] })
 
   // Sync athlete profile — merge with existing record to preserve user-set fields (age, dateOfBirth)
   const athleteData = await fetchAthlete(accessToken) as Record<string, unknown>
@@ -62,7 +63,7 @@ export async function syncActivities(
   let totalFetched = 0
   const allActivities: StravaActivity[] = []
 
-  onProgress?.({ phase: 'activities', activitiesFetched: 0 })
+  onProgress?.({ phase: 'activities', activitiesFetched: 0, importedActivities: [] })
 
   while (true) {
     const batch = await fetchActivitiesPage(accessToken, page, 100, after) as StravaActivity[]
@@ -70,7 +71,7 @@ export async function syncActivities(
 
     allActivities.push(...batch)
     totalFetched += batch.length
-    onProgress?.({ phase: 'activities', activitiesFetched: totalFetched })
+    onProgress?.({ phase: 'activities', activitiesFetched: totalFetched, importedActivities: [...allActivities] })
 
     try {
       await db.activities.bulkPut(batch)
@@ -84,7 +85,7 @@ export async function syncActivities(
     if (batch.length < 100) break
   }
 
-  onProgress?.({ phase: 'done', activitiesFetched: totalFetched })
+  onProgress?.({ phase: 'done', activitiesFetched: totalFetched, importedActivities: [...allActivities] })
 }
 
 export async function syncStreamsForActivity(

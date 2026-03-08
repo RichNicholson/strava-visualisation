@@ -51,6 +51,7 @@ export interface FilterState {
   pace: {
     average: { min: number; max: number } | null // seconds/km; null = disabled
   }
+  heartrate: { min: number; max: number; includeNoHR: boolean } | null // bpm; null = inactive
 }
 
 export type MetricKey =

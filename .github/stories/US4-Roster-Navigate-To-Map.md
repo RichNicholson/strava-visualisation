@@ -14,3 +14,7 @@
 
 - Relevant files: `components/roster/RosterPanel.tsx` (add map-navigation action), `app/dashboard/page.tsx` (wire up `plotMode` switch + `selectedActivityId`), `components/plots/RouteMap.tsx`
 - The dashboard already tracks `selectedActivityId` and `plotMode` state — this story connects them via the roster
+
+## Completed
+
+2026-03-08: Deferred — not needed for now; users can switch to map tab manually.

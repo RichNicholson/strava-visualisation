@@ -20,7 +20,7 @@ interface SeriesPlotProps {
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
 
 const Y_LABELS: Record<YMetric, string> = {
-  cumulative: 'Cumulative Pace (min/km)',
+  cumulative: 'Pace (min/km)',
   rolling: 'Rolling Pace (min/km)',
   heartrate: 'Heart Rate (bpm)',
   elevation: 'Elevation (m)',
@@ -54,20 +54,30 @@ function rollingPace(time: number[], distance: number[], windowM: number): numbe
 }
 
 /**
- * Build a moving-time array: only accumulates elapsed time for intervals
- * where the runner is covering ground at a realistic pace.
+ * Gap (seconds) between consecutive stream samples that indicates the watch
+ * was paused.  Strava normalises activity streams to ~1 sample/second, so a
+ * jump of more than 3 s means the watch was not recording.
  */
-function buildMovingTime(time: number[], distance: number[]): number[] {
+const PAUSE_GAP_S = 3
+
+/**
+ * Build a moving-time array from the raw time stream.
+ *
+ * "Moving time" = accumulated watch-on time: every consecutive sample gap
+ * that is <= PAUSE_GAP_S is counted; larger gaps are watch pauses and are
+ * excluded.  This matches the user's expectation: moving time stops
+ * incrementing only when the watch is paused, not based on speed.
+ *
+ * Elapsed time is just stream.time directly (seconds since activity start,
+ * including any pause gaps).
+ */
+function buildMovingTime(time: number[]): number[] {
   const result: number[] = new Array(time.length)
   let mt = 0
-  for (let i = 0; i < distance.length; i++) {
-    if (i > 0) {
-      const dd = distance[i] - distance[i - 1]
-      const dt = time[i] - time[i - 1]
-      if (dd > 0 && dt > 0 && (dd / dt) >= (1000 / MAX_PACE_S_PER_KM)) {
-        mt += dt
-      }
-    }
+  result[0] = 0
+  for (let i = 1; i < time.length; i++) {
+    const dt = time[i] - time[i - 1]
+    if (dt > 0 && dt <= PAUSE_GAP_S) mt += dt
     result[i] = mt
   }
   return result
@@ -132,7 +142,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
 
     // Build series data
     interface Point { x: number; y: number }
-    const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[] = []
+const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[] = []
 
     for (const activity of activities) {
       const stream = streams.get(activity.id)
@@ -145,7 +155,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
         case 'cumulative': {
           // Cumulative: time / distance at each point → s/km
           const t = stream.time && stream.distance
-            ? (timeMode === 'moving' ? buildMovingTime(stream.time, stream.distance) : stream.time)
+            ? (timeMode === 'moving' ? buildMovingTime(stream.time) : stream.time)
             : undefined
           yData = t && stream.distance
             ? stream.distance.map((d, i) => d > 0 ? (t[i] / d) * 1000 : NaN)
@@ -155,7 +165,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
         case 'rolling': {
           // Rolling: mean pace over last 500 m
           const t = stream.time && stream.distance
-            ? (timeMode === 'moving' ? buildMovingTime(stream.time, stream.distance) : stream.time)
+            ? (timeMode === 'moving' ? buildMovingTime(stream.time) : stream.time)
             : undefined
           yData = t && stream.distance
             ? rollingPace(t, stream.distance, ROLLING_WINDOW_M)
@@ -357,7 +367,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
         : athlete.age!
       const contourDistances = d3.range(
         Math.max(100, xScale.domain()[0]),
-        xScale.domain()[1],
+        xScale.domain()[1] + 500,
         500
       )
       const contourData = generateAgeGradeContour(
@@ -520,6 +530,11 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
                 </button>
               ))}
             </div>
+          )}
+          {yMetric === 'cumulative' && (
+            <span className="text-xs text-gray-400 ml-1">
+              cumulative average pace
+            </span>
           )}
           {(yMetric === 'cumulative' || yMetric === 'rolling') && xMetric === 'distance' && athlete?.age && athlete?.sex && (
           <>

@@ -19,12 +19,14 @@ import { useStreams, useStream } from '../../hooks/useStreams'
 import { applyFilter } from '../../lib/analysis/filter'
 import type { FilterState, StravaActivity } from '../../lib/strava/types'
 import { SettingsPanel } from './SettingsPanel'
+import { SyncDialog } from '../../components/ui/SyncDialog'
 
 const DEFAULT_FILTER: FilterState = {
   dateRange: null,
   distanceRange: null,
   sport: ['Run'],
   pace: { average: { min: 3 * 60, max: 10 * 60 } },
+  heartrate: null,
 }
 
 type PlotMode = 'scatter' | 'table' | 'series' | 'map'
@@ -39,7 +41,7 @@ const MODE_LABELS: Record<PlotMode, string> = {
 export default function Dashboard() {
   const allActivities = useAllActivities()
   const athlete = useAthlete()
-  const { progress, isSyncing, startSync } = useStravaSync()
+  const { progress, isSyncing, startSync, clearProgress } = useStravaSync()
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
   const [plotMode, setPlotMode] = useState<PlotMode>('scatter')
   const [showSettings, setShowSettings] = useState(false)
@@ -141,6 +143,8 @@ export default function Dashboard() {
 
   const mapSource = roster.size > 0 ? rosterActivities : []
   const selectedActivity = mapSource.find((a) => a.id === selectedActivityId) ?? null
+
+  const showSyncDialog = isSyncing || (progress !== null && progress.phase !== 'error')
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -332,7 +336,16 @@ export default function Dashboard() {
 
       {/* Settings modal */}
       {showSettings && (
-        <SettingsPanel athlete={athlete ?? null} onClose={() => setShowSettings(false)} />
+        <SettingsPanel
+          athlete={athlete ?? null}
+          onClose={() => setShowSettings(false)}
+          onFullResync={() => { setShowSettings(false); startSync(true) }}
+        />
+      )}
+
+      {/* Sync progress dialog */}
+      {showSyncDialog && progress && (
+        <SyncDialog progress={progress} isSyncing={isSyncing} onDismiss={clearProgress} />
       )}
     </div>
   )

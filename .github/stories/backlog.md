@@ -14,10 +14,10 @@
 | ✅ 6 | US6-Scatter-Age-Grade-Axis.md | Age-grade axis on scatter plot | High | Medium | Directly supports race analysis; builds on existing WMA lib. Now requires a date-of-birth setting and per-activity age calculation (integer age, no interpolation) which adds scope to SettingsPanel and ageGrade.ts |
 | ✅ 7 | US11-Series-Raw-With-Moving-Average.md | Raw data with moving average overlay | High | Medium | Core race analysis feature — accurate pacing data with trend line for spotting fade |
 | ✅ 8 | US12-Series-Hide-Remove-Runs.md | Hide and remove runs from series plot | High | Medium | Enables focused comparison of specific race efforts without losing the full roster |
-| 9 | US4-Roster-Navigate-To-Map.md | Navigate from roster to map | Medium | Medium | Streamlines race review workflow; wires existing `plotMode` and `selectedActivityId` state |
-| 10 | US1-Filter-Heart-Rate-Filter.md | Heart rate filter | Medium | Medium | Useful for isolating race-intensity efforts; enables US2 (dynamic filters) |
+| ✅ 9 | US4-Roster-Navigate-To-Map.md | Navigate from roster to map | Medium | Medium | Streamlines race review workflow; wires existing `plotMode` and `selectedActivityId` state |
+| ✅ 10 | US1-Filter-Heart-Rate-Filter.md | Heart rate filter | Medium | Medium | Useful for isolating race-intensity efforts; enables US2 (dynamic filters) |
 | 11 | US3-Filter-Improve-Preset-UX.md | Improve filter preset loading UX | Medium | Medium | Speeds up recurring race-analysis workflows (e.g. a "5k Races" preset) |
-| 12 | US15-Settings-Resync-Clear-Data.md | Re-sync and clear data options | Low | Medium | Maintenance utility; not race-specific but important for data integrity |
+| ✅ 12 | US15-Settings-Resync-Clear-Data.md | Re-sync and clear data options | Low | Medium | Maintenance utility; not race-specific but important for data integrity |
 | 13 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1; significant FilterPanel refactor; more quality-of-life than race analysis |
 | 14 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
 | 15 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land |

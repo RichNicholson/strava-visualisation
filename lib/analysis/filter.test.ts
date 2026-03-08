@@ -26,6 +26,7 @@ const noFilter: FilterState = {
   distanceRange: null,
   sport: [],
   pace: { average: null },
+  heartrate: null,
 }
 
 describe('applyFilter', () => {
@@ -101,5 +102,44 @@ describe('applyFilter', () => {
 
   it('returns empty array for empty input', () => {
     expect(applyFilter([], noFilter)).toHaveLength(0)
+  })
+
+  describe('heart rate filter', () => {
+    const withHR = (id: number, hr: number | undefined) =>
+      makeActivity({ id, average_heartrate: hr })
+
+    it('passes all activities when heartrate filter is null', () => {
+      const activities = [withHR(1, 140), withHR(2, 170), withHR(3, undefined)]
+      expect(applyFilter(activities, { ...noFilter, heartrate: null })).toHaveLength(3)
+    })
+
+    it('excludes activities outside the HR range', () => {
+      const activities = [withHR(1, 130), withHR(2, 150), withHR(3, 175)]
+      const result = applyFilter(activities, {
+        ...noFilter,
+        heartrate: { min: 140, max: 165, includeNoHR: false },
+      })
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe(2)
+    })
+
+    it('excludes no-HR activities when includeNoHR is false', () => {
+      const activities = [withHR(1, 150), withHR(2, undefined)]
+      const result = applyFilter(activities, {
+        ...noFilter,
+        heartrate: { min: 140, max: 165, includeNoHR: false },
+      })
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe(1)
+    })
+
+    it('includes no-HR activities when includeNoHR is true', () => {
+      const activities = [withHR(1, 150), withHR(2, undefined)]
+      const result = applyFilter(activities, {
+        ...noFilter,
+        heartrate: { min: 140, max: 165, includeNoHR: true },
+      })
+      expect(result).toHaveLength(2)
+    })
   })
 })
