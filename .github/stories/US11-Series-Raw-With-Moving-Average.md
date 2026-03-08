@@ -17,3 +17,7 @@
 - The current `rollingAvg` function can be reused for the overlay — just remove it from the primary line
 - 0.25 miles ≈ 400 m; use distance stream values (in metres) to determine window size in data points
 - Rolling average window should be based on distance, not a fixed number of points
+
+## Completed
+
+2026-03-07 — Replaced fixed-index rolling average with a distance-based (400 m / ~0.25 mi) sliding-window overlay; raw data (no smoothing) is now drawn as a thin background line for all metrics including cumulative pace; first 160 m of each stream is trimmed and the distance x-axis domain starts at 160 m.

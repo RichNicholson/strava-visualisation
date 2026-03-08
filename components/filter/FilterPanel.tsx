@@ -68,11 +68,15 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
   }
 
   function toggleSport(sport: string) {
-    const current = filter.sport
+    const current = filter.sport.length === 0 ? sportTypes : filter.sport
     const next = current.includes(sport)
       ? current.filter((s) => s !== sport)
       : [...current, sport]
-    onChange({ ...filter, sport: next })
+    // Normalise "all sports explicitly selected" back to [] (the "no filter" sentinel).
+    // Never allow an empty selection — ignore the click if it would leave nothing checked.
+    if (next.length === 0) return
+    const normalised = next.length === sportTypes.length ? [] : next
+    onChange({ ...filter, sport: normalised })
   }
 
   function resetFilter() {
@@ -113,21 +117,36 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       {sportTypes.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Sport</p>
-          <div className="flex flex-wrap gap-1.5">
-            {sportTypes.map((sport) => (
-              <button
-                key={sport}
-                onClick={() => toggleSport(sport)}
-                className={`px-2.5 py-0.5 text-sm rounded-full border transition-colors ${
-                  filter.sport.length === 0 || filter.sport.includes(sport)
-                    ? 'bg-orange-500 text-white border-orange-500'
-                    : 'border-gray-300 text-gray-500 hover:border-orange-300'
-                }`}
-              >
-                {sport}
-              </button>
-            ))}
-          </div>
+          <details className="relative group">
+            <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-orange-300 list-none">
+              <span className="truncate">
+                {filter.sport.length === 0
+                  ? 'All sports'
+                  : filter.sport.length <= 2
+                  ? filter.sport.join(', ')
+                  : `${filter.sport.length} selected`}
+              </span>
+              <svg className="ml-2 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </summary>
+            <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+              {sportTypes.map((sport) => (
+                <label
+                  key={sport}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-orange-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={filter.sport.length === 0 || filter.sport.includes(sport)}
+                    onChange={() => toggleSport(sport)}
+                    className="accent-orange-500"
+                  />
+                  {sport}
+                </label>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 

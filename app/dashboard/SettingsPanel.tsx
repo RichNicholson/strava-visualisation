@@ -10,7 +10,7 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ athlete, onClose }: SettingsPanelProps) {
-  const [age, setAge] = useState(String(athlete?.age ?? ''))
+  const [dateOfBirth, setDateOfBirth] = useState(athlete?.dateOfBirth ?? '')
   const [sex, setSex] = useState<'M' | 'F'>(athlete?.sex ?? 'M')
   const [saving, setSaving] = useState(false)
 
@@ -18,7 +18,7 @@ export function SettingsPanel({ athlete, onClose }: SettingsPanelProps) {
     if (!athlete) return
     setSaving(true)
     await db.athlete.update(athlete.id, {
-      age: age ? parseInt(age) : undefined,
+      dateOfBirth: dateOfBirth || undefined,
       sex,
     })
     setSaving(false)
@@ -46,21 +46,30 @@ export function SettingsPanel({ athlete, onClose }: SettingsPanelProps) {
 
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Age and gender are used to compute WMA age-grade contours on scatter plots.
-            Stored only in your browser.
+            Date of birth and gender are used to compute WMA age-grade contours and
+            per-activity age grades. Stored only in your browser.
           </p>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Age</label>
+            <label className="text-sm font-medium text-gray-700">Date of birth</label>
             <input
-              type="number"
-              min={15}
-              max={100}
-              value={age}
-              onChange={(e) => setAge(e.target.value)}
-              placeholder="e.g. 42"
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
             />
+            {dateOfBirth && (
+              <p className="text-xs text-gray-400">
+                {(() => {
+                  const dob = new Date(dateOfBirth)
+                  const today = new Date()
+                  const years = today.getFullYear() - dob.getFullYear()
+                  const bday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate())
+                  return `Age: ${today >= bday ? years : years - 1}`
+                })()}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">

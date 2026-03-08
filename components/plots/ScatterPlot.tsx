@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from 'react'
 import * as d3 from 'd3'
 import type { StravaActivity, MetricKey, Athlete } from '../../lib/strava/types'
 import { getMetricValue, METRIC_LABELS } from '../../lib/strava/types'
-import { generateAgeGradeContour } from '../../lib/wma/ageGrade'
+import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
 
 type YAxis = MetricKey
 type ColorMetric = MetricKey | 'index'
@@ -17,15 +17,27 @@ const COLOR_SCHEMES: Record<ColorScheme, (t: number) => string> = {
   Plasma: d3.interpolatePlasma,
 }
 
-const CONTOUR_GRADES = Array.from({ length: 21 }, (_, i) => 50 + i * 2)
-const CONTOUR_COLORS = CONTOUR_GRADES.map((_, i) =>
-  d3.interpolateGreens(0.25 + (i / 20) * 0.65)
-)
+/** Build a contour grade array of `count` values (step 2) centred on `centre`, clamped to [1,100]. */
+function buildContourGrades(centre: number, count = 21): number[] {
+  const rounded = Math.round(centre / 2) * 2
+  const half = Math.floor(count / 2)
+  return Array.from({ length: count }, (_, i) => rounded + (i - half) * 2)
+    .filter((g) => g >= 1 && g <= 100)
+}
+
+function contourColors(grades: number[]): string[] {
+  const min = Math.min(...grades)
+  const max = Math.max(...grades)
+  const span = max - min || 1
+  return grades.map((g) => d3.interpolateGreens(0.25 + ((g - min) / span) * 0.65))
+}
 
 const MARGIN = { top: 20, right: 80, bottom: 50, left: 70 }
 
-// MetricKey entries for axis/color selectors
-const METRIC_OPTIONS = Object.entries(METRIC_LABELS) as [MetricKey, string][]
+// X-axis and color metric options (exclude derived age_grade which requires athlete context)
+const METRIC_OPTIONS = (Object.entries(METRIC_LABELS) as [MetricKey, string][]).filter(([k]) => k !== 'age_grade')
+// Y-axis also offers age_grade
+const Y_AXIS_OPTIONS: [MetricKey, string][] = [...METRIC_OPTIONS, ['age_grade', METRIC_LABELS.age_grade]]
 
 interface ScatterPlotProps {
   activities: StravaActivity[]
@@ -58,9 +70,19 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
 
     const isPace = yAxis === 'average_pace'
 
-    const getYValue = (a: StravaActivity): number | null => getMetricValue(a, yAxis)
+    const getYValue = (a: StravaActivity): number | null => {
+      if (yAxis === 'age_grade') {
+        if (!athlete?.dateOfBirth || !athlete?.sex || !a.distance || !a.moving_time) return null
+        const age = ageAtDate(athlete.dateOfBirth, a.start_date)
+        return computeAgeGrade(athlete.sex, age, a.distance, a.moving_time)
+      }
+      return getMetricValue(a, yAxis)
+    }
 
-    const plotActivities = activities
+    // When age_grade is selected, exclude uncomputable activities
+    const plotActivities = yAxis === 'age_grade'
+      ? activities.filter((a) => getYValue(a) !== null)
+      : activities
 
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
@@ -138,6 +160,8 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           const s = Number(d)
           return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
         }
+      : yAxis === 'age_grade'
+      ? (d: d3.NumberValue) => `${Number(d).toFixed(1)}%`
       : undefined
 
     const yLabel = METRIC_LABELS[yAxis]
@@ -153,11 +177,32 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
       )
 
     // WMA contours (distance × average_pace only)
-    if (showWMA && xAxis === 'distance' && yAxis === 'average_pace' && athlete?.sex && athlete?.age) {
+    if (showWMA && xAxis === 'distance' && yAxis === 'average_pace' && athlete?.sex && (athlete?.dateOfBirth || athlete?.age)) {
       const contourDistances = d3.range(xScale.domain()[0] * 1000, xScale.domain()[1] * 1000, 500)
 
-      CONTOUR_GRADES.forEach((grade, i) => {
-        const pts = generateAgeGradeContour(athlete.sex!, athlete.age!, grade, contourDistances)
+      // Compute median age grade across visible activities so contours are centred on real data.
+      const grades = plotActivities
+        .filter((a) => a.distance && a.moving_time)
+        .map((a) => {
+          const age = athlete.dateOfBirth
+            ? ageAtDate(athlete.dateOfBirth, a.start_date)
+            : athlete.age!
+          return computeAgeGrade(athlete.sex!, age, a.distance, a.moving_time)
+        })
+        .filter((g): g is number => g !== null && isFinite(g))
+      const median = grades.length > 0
+        ? [...grades].sort((a, b) => a - b)[Math.floor(grades.length / 2)]
+        : 70  // sensible fallback when no activities have computable grades
+
+      const contourGrades = buildContourGrades(median)
+      const colors = contourColors(contourGrades)
+
+      contourGrades.forEach((grade, i) => {
+        // For the contour line we always use today's age (the static reference curve)
+        const contourAge = athlete.dateOfBirth
+          ? ageAtDate(athlete.dateOfBirth, new Date().toISOString())
+          : athlete.age!
+        const pts = generateAgeGradeContour(athlete.sex!, contourAge, grade, contourDistances)
         const isMajor = grade % 10 === 0
 
         const lineGen = d3.line<{ distance: number; pace: number }>()
@@ -171,7 +216,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
         g.append('path')
           .datum(pts)
           .attr('fill', 'none')
-          .attr('stroke', CONTOUR_COLORS[i])
+          .attr('stroke', colors[i])
           .attr('stroke-width', isMajor ? 1.8 : 1)
           .attr('stroke-dasharray', isMajor ? '4 3' : '2 2')
           .attr('d', lineGen)
@@ -186,7 +231,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
             g.append('text')
               .attr('x', xScale(last.distance / 1000) + 4)
               .attr('y', yScale(last.pace))
-              .attr('font-size', '10px').attr('fill', CONTOUR_COLORS[i])
+              .attr('font-size', '10px').attr('fill', colors[i])
               .attr('dominant-baseline', 'middle')
               .text(`${grade}%`)
           }
@@ -384,7 +429,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
               onChange={(e) => { setYAxis(e.target.value as YAxis); setViewDomain(null) }}
               className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
             >
-              {METRIC_OPTIONS.map(([k, label]) => (
+              {Y_AXIS_OPTIONS.map(([k, label]) => (
                 <option key={k} value={k}>{label}</option>
               ))}
             </select>
@@ -402,9 +447,9 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           {/* WMA note */}
           {showWMA && xAxis === 'distance' && yAxis === 'average_pace' && (
             <span className="text-xs text-gray-400 ml-auto self-center">
-              {athlete?.age && athlete?.sex
-                ? `WMA contours: age ${athlete.age}, ${athlete.sex}`
-                : 'Set age/sex in Settings for WMA contours'}
+              {(athlete?.dateOfBirth || athlete?.age) && athlete?.sex
+                ? `WMA contours: age ${athlete.dateOfBirth ? ageAtDate(athlete.dateOfBirth, new Date().toISOString()) : athlete.age}, ${athlete.sex}`
+                : 'Set date of birth/sex in Settings for WMA contours'}
             </span>
           )}
         </div>
@@ -422,21 +467,15 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
               <option key={k} value={k}>{label}</option>
             ))}
           </select>
-          <div className="flex gap-1">
+          <select
+            value={colorScheme}
+            onChange={(e) => setColorScheme(e.target.value as ColorScheme)}
+            className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+          >
             {(Object.keys(COLOR_SCHEMES) as ColorScheme[]).map((scheme) => (
-              <button
-                key={scheme}
-                onClick={() => setColorScheme(scheme)}
-                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                  colorScheme === scheme
-                    ? 'bg-orange-500 text-white border-orange-500'
-                    : 'border-gray-300 text-gray-500 hover:border-orange-300'
-                }`}
-              >
-                {scheme}
-              </button>
+              <option key={scheme} value={scheme}>{scheme}</option>
             ))}
-          </div>
+          </select>
         </div>
       </div>
 

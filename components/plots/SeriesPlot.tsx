@@ -1,12 +1,12 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 import * as d3 from 'd3'
 import type { StravaActivity, Athlete } from '../../lib/strava/types'
 import type { ActivityStream } from '../../lib/strava/types'
-import { generateAgeGradeContour, computeAgeGrade } from '../../lib/wma/ageGrade'
+import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
 
-type YMetric = 'pace' | 'heartrate' | 'elevation' | 'cadence'
+type YMetric = 'cumulative' | 'rolling' | 'heartrate' | 'elevation' | 'cadence'
 type XMetric = 'distance' | 'time'
 
 interface SeriesPlotProps {
@@ -20,19 +20,57 @@ interface SeriesPlotProps {
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
 
 const Y_LABELS: Record<YMetric, string> = {
-  pace: 'Cumulative Pace (min/km)',
+  cumulative: 'Cumulative Pace (min/km)',
+  rolling: 'Rolling Pace (min/km)',
   heartrate: 'Heart Rate (bpm)',
   elevation: 'Elevation (m)',
   cadence: 'Cadence (spm)',
 }
 
-function rollingAvg(data: number[], windowSize: number): number[] {
-  return data.map((_, i) => {
-    const start = Math.max(0, i - Math.floor(windowSize / 2))
-    const end = Math.min(data.length, start + windowSize)
-    const slice = data.slice(start, end)
-    return slice.reduce((a, b) => a + b, 0) / slice.length
-  })
+const ROLLING_WINDOW_M = 500   // rolling pace = mean pace of last 500 m
+const MAX_PACE_S_PER_KM = 900  // 15 min/km - clamp y-axis slow end
+const MIN_PACE_S_PER_KM = 120  // 2 min/km - discard GPS-jump artefacts
+
+/**
+ * Rolling pace: at each point, find the point ~500 m behind and compute
+ * (time[i] − time[j]) / (distance[i] − distance[j]) × 1000  →  s/km.
+ * For early points where < 500 m has elapsed, use all data from the start.
+ */
+function rollingPace(time: number[], distance: number[], windowM: number): number[] {
+  const result: number[] = new Array(time.length)
+  let left = 0
+
+  for (let i = 0; i < distance.length; i++) {
+    const target = distance[i] - windowM
+    while (left < i && distance[left + 1] <= target) left++
+
+    const dd = distance[i] - distance[left]
+    const dt = time[i] - time[left]
+    const pace = dd > 0 ? (dt / dd) * 1000 : NaN
+    result[i] = pace >= MIN_PACE_S_PER_KM ? pace : NaN
+  }
+
+  return result
+}
+
+/**
+ * Build a moving-time array: only accumulates elapsed time for intervals
+ * where the runner is covering ground at a realistic pace.
+ */
+function buildMovingTime(time: number[], distance: number[]): number[] {
+  const result: number[] = new Array(time.length)
+  let mt = 0
+  for (let i = 0; i < distance.length; i++) {
+    if (i > 0) {
+      const dd = distance[i] - distance[i - 1]
+      const dt = time[i] - time[i - 1]
+      if (dd > 0 && dt > 0 && (dd / dt) >= (1000 / MAX_PACE_S_PER_KM)) {
+        mt += dt
+      }
+    }
+    result[i] = mt
+  }
+  return result
 }
 
 export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: SeriesPlotProps) {
@@ -42,16 +80,45 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
   const dragStateRef = useRef({ isDragging: false, distanceMetres: 0 })
   const yScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
   const xScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
-  const [yMetric, setYMetric] = useState<YMetric>('pace')
+  const [yMetric, setYMetric] = useState<YMetric>('rolling')
   const [xMetric, setXMetric] = useState<XMetric>('distance')
+  const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
+  const [yViewDomain, setYViewDomain] = useState<[number, number] | null>(null)
   const [showWMA, setShowWMA] = useState(true)
-  const [ageGradePercent, setAgeGradePercent] = useState(65)
-  const lineMode = 'rolling' as const
-  const rollingWindow = 50
-  const autoscale = true
+  // null = not yet seeded; on first render with pace data we compute from median
+  const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
+
+  // Compute median age grade from the current activities whenever athlete / activities change
+  const medianAgeGrade = useMemo(() => {
+    if (!athlete?.sex || (!athlete?.dateOfBirth && !athlete?.age)) return null
+    const grades = activities
+      .filter((a) => a.distance && a.moving_time)
+      .map((a) => {
+        const age = athlete.dateOfBirth
+          ? ageAtDate(athlete.dateOfBirth, a.start_date)
+          : athlete.age!
+        return computeAgeGrade(athlete.sex!, age, a.distance, a.moving_time)
+      })
+      .filter((g): g is number => g !== null && isFinite(g))
+    if (grades.length === 0) return null
+    const sorted = [...grades].sort((a, b) => a - b)
+    return Math.round(sorted[Math.floor(sorted.length / 2)] * 10) / 10
+  }, [activities, athlete])
+
+  // Seed ageGradePercent from median whenever it hasn't been set yet (or median changes enough)
+  useEffect(() => {
+    if (medianAgeGrade !== null) setAgeGradePercent(medianAgeGrade)
+  }, [medianAgeGrade])
+
+  // Reset y-axis lock when the metric or time mode changes
+  useEffect(() => { setYViewDomain(null) }, [yMetric, xMetric, timeMode])
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
+
+    const svg = d3.select(svgRef.current)
+    svg.selectAll('*').remove()
+
     if (activities.length === 0 || streams.size === 0) return
 
     const container = containerRef.current
@@ -59,16 +126,13 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
     const height = container.clientHeight
     const innerW = width - MARGIN.left - MARGIN.right
     const innerH = height - MARGIN.top - MARGIN.bottom
-
-    const svg = d3.select(svgRef.current)
-    svg.selectAll('*').remove()
     svg.attr('width', width).attr('height', height)
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
 
     // Build series data
     interface Point { x: number; y: number }
-    const series: { id: number; name: string; points: Point[] }[] = []
+    const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[] = []
 
     for (const activity of activities) {
       const stream = streams.get(activity.id)
@@ -78,15 +142,26 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
       let yData: number[] | undefined
 
       switch (yMetric) {
-        case 'pace':
-          // Cumulative pace: elapsed time / distance covered, in s/km
-          yData =
-            stream.time && stream.distance
-              ? stream.distance.map((d, i) =>
-                  d > 0 ? (stream.time![i] / d) * 1000 : NaN
-                )
-              : undefined
+        case 'cumulative': {
+          // Cumulative: time / distance at each point → s/km
+          const t = stream.time && stream.distance
+            ? (timeMode === 'moving' ? buildMovingTime(stream.time, stream.distance) : stream.time)
+            : undefined
+          yData = t && stream.distance
+            ? stream.distance.map((d, i) => d > 0 ? (t[i] / d) * 1000 : NaN)
+            : undefined
           break
+        }
+        case 'rolling': {
+          // Rolling: mean pace over last 500 m
+          const t = stream.time && stream.distance
+            ? (timeMode === 'moving' ? buildMovingTime(stream.time, stream.distance) : stream.time)
+            : undefined
+          yData = t && stream.distance
+            ? rollingPace(t, stream.distance, ROLLING_WINDOW_M)
+            : undefined
+          break
+        }
         case 'heartrate':
           yData = stream.heartrate
           break
@@ -100,13 +175,26 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
 
       if (!yData || !xData || xData.length === 0) continue
 
-      const smoothed = lineMode === 'rolling' ? rollingAvg(yData, rollingWindow) : yData
+      // Skip the first 500 m for both pace modes (noisy GPS startup)
+      const distData = stream.distance ?? xData
+      const minDist = (yMetric === 'rolling' || yMetric === 'cumulative') ? ROLLING_WINDOW_M : 0
+
       const points: Point[] = xData
-        .map((x, i) => ({ x, y: smoothed[i] }))
-        .filter((p) => isFinite(p.x) && isFinite(p.y))
+        .map((x, i) => ({ x, y: yData![i], dist: distData[i] }))
+        .filter((p) => isFinite(p.x) && isFinite(p.y) && p.dist >= minDist)
+        .map(({ x, y }) => ({ x, y }))
+
+      // Separate out-of-bounds points (pace slower than 15 min/km)
+      const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling'
+      const oobPoints: Point[] = isPaceMetric
+        ? xData
+            .map((x, i) => ({ x, y: yData![i], dist: distData[i] }))
+            .filter((p) => isFinite(p.x) && isFinite(p.y) && p.dist >= minDist && p.y > MAX_PACE_S_PER_KM)
+            .map(({ x }) => ({ x, y: MAX_PACE_S_PER_KM }))
+        : []
 
       if (points.length > 0) {
-        series.push({ id: activity.id, name: activity.name, points })
+        series.push({ id: activity.id, name: activity.name, points, oobPoints })
       }
     }
 
@@ -116,15 +204,16 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
     const allY = series.flatMap((s) => s.points.map((p) => p.y))
 
     const xScale = d3.scaleLinear().domain([0, d3.max(allX)!]).range([0, innerW])
-    const isPace = yMetric === 'pace'
+    const isPace = yMetric === 'cumulative' || yMetric === 'rolling'
 
-    // Pace: invert (faster = lower number = top). When autoscale is off, pin top to 0.
-    const yDomain: [number, number] = isPace
-      ? autoscale
-        ? [d3.max(allY)! * 1.02, d3.min(allY)! * 0.98]
-        : [d3.max(allY)!, 0]
-      : [d3.min(allY)! * 0.95, d3.max(allY)! * 1.05]
-    const yScale = d3.scaleLinear().domain(yDomain).range([innerH, 0]).nice()
+    // Compute natural y-domain from current data, then lock it (or use locked value)
+    const clampedMaxY = isPace ? Math.min(d3.max(allY)!, MAX_PACE_S_PER_KM) : d3.max(allY)!
+    const naturalYDomain: [number, number] = isPace
+      ? [clampedMaxY * 1.02, d3.min(allY)! * 0.98]
+      : [d3.min(allY)! * 0.95, clampedMaxY * 1.05]
+    const effectiveYDomain = yViewDomain ?? naturalYDomain
+    if (!yViewDomain) setYViewDomain(naturalYDomain)
+    const yScale = d3.scaleLinear().domain(effectiveYDomain).range([innerH, 0]).nice()
     
     // Store scales for drag handler
     yScaleRef.current = yScale
@@ -181,13 +270,15 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
           .text(Y_LABELS[yMetric])
       )
 
-    // Lines
+    // Line generator — no smoothing, straight point-to-point
+    // For pace metrics, skip points that exceed the boundary (leave gap; × markers shown instead)
+    const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling'
     const lineGen = d3
       .line<Point>()
       .x((d) => xScale(d.x))
       .y((d) => yScale(d.y))
-      .defined((d) => isFinite(d.y))
-      .curve(d3.curveCatmullRom)
+      .defined((d) => isFinite(d.y) && (!isPaceMetric || d.y <= MAX_PACE_S_PER_KM))
+      .curve(d3.curveLinear)
 
     const tooltip = tooltipRef.current
 
@@ -203,16 +294,11 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
         .attr('d', lineGen)
         .style('cursor', 'pointer')
         .on('mouseenter', function (event) {
-          // Dim all other lines
           g.selectAll<SVGPathElement, unknown>('path.series-line')
-            .attr('opacity', 0.2)
-            .attr('stroke-width', 1.5)
-          // Highlight this line
-          g.selectAll<SVGPathElement, Point[]>('path.series-line')
-            .filter((_, j) => j === i)
+            .attr('opacity', 0.15)
+          g.selectAll<SVGPathElement, unknown>(`path.series-line[data-id="${s.id}"]`)
             .attr('opacity', 1)
-            .attr('stroke-width', 3)
-          // Show tooltip
+            .attr('stroke-width', 2.5)
           if (tooltip) {
             tooltip.style.display = 'block'
             tooltip.style.borderColor = color
@@ -233,10 +319,22 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
           if (tooltip) tooltip.style.display = 'none'
         })
 
+      // Out-of-bounds × markers clamped to slow-pace boundary
+      const S = 4  // half-size of the × arms
+      const crossPath = `M${-S},${-S}L${S},${S}M${-S},${S}L${S},${-S}`
+      s.oobPoints.forEach((p) => {
+        const cx = xScale(p.x)
+        const cy = yScale(MAX_PACE_S_PER_KM)
+        const mk = g.append('g').attr('transform', `translate(${cx},${cy})`)
+        mk.append('path').attr('d', crossPath)
+          .attr('stroke', color).attr('stroke-width', 1.5).attr('fill', 'none').attr('opacity', 0.8)
+      })
+
       // Visible line
       g.append('path')
         .datum(s.points)
         .attr('class', 'series-line')
+        .attr('data-id', String(s.id))
         .attr('fill', 'none')
         .attr('stroke', color)
         .attr('stroke-width', 1.5)
@@ -246,13 +344,17 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
     })
 
     // ── WMA contour (pace × distance only) ──────────────────────────────────
+    const effectiveGrade = ageGradePercent ?? medianAgeGrade ?? 70
     if (
-      yMetric === 'pace' &&
+      (yMetric === 'cumulative' || yMetric === 'rolling') &&
       xMetric === 'distance' &&
       showWMA &&
-      athlete?.age &&
+      (athlete?.dateOfBirth || athlete?.age) &&
       athlete?.sex
     ) {
+      const contourAge = athlete.dateOfBirth
+        ? ageAtDate(athlete.dateOfBirth, new Date().toISOString())
+        : athlete.age!
       const contourDistances = d3.range(
         Math.max(100, xScale.domain()[0]),
         xScale.domain()[1],
@@ -260,8 +362,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
       )
       const contourData = generateAgeGradeContour(
         athlete.sex,
-        athlete.age,
-        ageGradePercent,
+        contourAge,
+        effectiveGrade,
         contourDistances
       )
 
@@ -311,17 +413,17 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
           .attr('font-size', '11px')
           .attr('fill', '#10b981')
           .attr('font-weight', '600')
-          .text(`${ageGradePercent}% age grade`)
+          .text(`${effectiveGrade.toFixed(1)}% age grade`)
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, athlete])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain])
 
   // Handle drag events for WMA contour
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       if (!dragStateRef.current.isDragging) return
       if (!svgRef.current || !yScaleRef.current) return
-      if (!athlete?.age || !athlete?.sex) return
+      if ((!athlete?.age && !athlete?.dateOfBirth) || !athlete?.sex) return
 
       const rect = svgRef.current.getBoundingClientRect()
       const cursorY = event.clientY - rect.top - MARGIN.top
@@ -333,11 +435,14 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
       // Convert pace to time at the fixed grab distance, then compute age grade directly
       const distMetres = dragStateRef.current.distanceMetres
       const timeSeconds = (paceSecsPerKm * distMetres) / 1000
-      const grade = computeAgeGrade(athlete.sex, athlete.age, distMetres, timeSeconds)
+      const dragAge = athlete.dateOfBirth
+        ? ageAtDate(athlete.dateOfBirth, new Date().toISOString())
+        : athlete.age!
+      const grade = computeAgeGrade(athlete.sex, dragAge, distMetres, timeSeconds)
 
-      // Snap to 0.1% and clamp
+      // Snap to 0.1% and clamp to valid range
       let newPercent = Math.round(grade * 10) / 10
-      newPercent = Math.max(50, Math.min(100, newPercent))
+      newPercent = Math.max(1, Math.min(100, newPercent))
 
       setAgeGradePercent(newPercent)
     }
@@ -368,7 +473,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
       <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 items-center">
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">Y:</span>
-          {(['pace', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
@@ -376,7 +481,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
                 yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
               }`}
             >
-              {m}
+              {m === 'cumulative' ? 'cumul.' : m === 'rolling' ? 'rolling' : m}
             </button>
           ))}
         </div>
@@ -394,7 +499,29 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
             </button>
           ))}
         </div>
-        {yMetric === 'pace' && xMetric === 'distance' && athlete?.age && athlete?.sex && (
+        <button
+          onClick={() => setYViewDomain(null)}
+          className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-500 transition-colors hover:border-orange-400 hover:text-orange-500"
+        >
+          Auto-scale
+        </button>
+          {(yMetric === 'cumulative' || yMetric === 'rolling') && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500">time:</span>
+              {(['moving', 'elapsed'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setTimeMode(m)}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    timeMode === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
+          {(yMetric === 'cumulative' || yMetric === 'rolling') && xMetric === 'distance' && athlete?.age && athlete?.sex && (
           <>
             <div className="flex items-center gap-1">
               <input
@@ -411,7 +538,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
             {showWMA && (
               <div className="flex items-center gap-1">
                 <span className="text-xs text-gray-400">
-                  {ageGradePercent}% — drag the line to adjust
+                  {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag the line to adjust
                 </span>
               </div>
             )}

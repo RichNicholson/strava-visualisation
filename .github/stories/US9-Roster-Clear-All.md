@@ -13,3 +13,7 @@
 ### Implementation notes
 
 - Relevant files: `components/roster/RosterPanel.tsx` (add button), `app/dashboard/page.tsx` (add a `clearRoster` handler that resets the `roster` Set and `colorAssignments` Map)
+
+## Completed
+
+**2026-03-07** — Added "Clear all" button to `RosterPanel` header (hidden when roster is empty). Dashboard `clearRoster` callback resets both `roster` Set and `colorAssignments` Map.

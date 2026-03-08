@@ -14,6 +14,13 @@ export class StravaDB extends Dexie {
       streams: 'activityId',
       athlete: 'id',
     })
+
+    // Version bumped to align with existing dev database; schema is unchanged.
+    this.version(10).stores({
+      activities: 'id, type, sport_type, start_date, distance, moving_time, average_speed, average_heartrate',
+      streams: 'activityId',
+      athlete: 'id',
+    })
   }
 }
 

@@ -72,23 +72,10 @@ function getWAVAFactor(distanceKm: number, age: number, sex: 'M' | 'F'): number 
     return 1.0
   }
 
-  // Interpolate by distance
-  const factor = interpolateByDistance(distanceKm, data.distances, ageFactorsForAge)
-
-  // If we need to interpolate between ages (for fractional ages)
-  if (clampedAge !== Math.floor(clampedAge)) {
-    const lowerAge = Math.floor(clampedAge)
-    const upperAge = Math.min(100, lowerAge + 1)
-    const upperAgeKey = upperAge.toString()
-    const upperAgeFactorsForAge = (data.ageFactors as Record<string, number[]>)[upperAgeKey]
-
-    if (upperAgeFactorsForAge) {
-      const upperFactor = interpolateByDistance(distanceKm, data.distances, upperAgeFactorsForAge)
-      return interpolate(clampedAge, lowerAge, upperAge, factor, upperFactor)
-    }
-  }
-
-  return factor
+  // Interpolate by distance. Age is always floored — no fractional interpolation
+  // between integer ages. This matches commercial race scoring systems (parkrun,
+  // RunScore) that use the athlete's integer age on the day of the event.
+  return interpolateByDistance(distanceKm, data.distances, ageFactorsForAge)
 }
 
 /**
@@ -159,6 +146,20 @@ export function generateAgeGradeContour(
       return { distance: distMetres, pace }
     })
     .filter((d) => isFinite(d.pace) && d.pace > 0)
+}
+
+/**
+ * Return the integer age (floor) of an athlete at the time of an event.
+ * Accounts for whether the birthday has already occurred in the event year.
+ * @param dateOfBirth - ISO date string (e.g. "1980-06-15")
+ * @param eventDate - ISO date string of the activity start date
+ */
+export function ageAtDate(dateOfBirth: string, eventDate: string): number {
+  const dob = new Date(dateOfBirth)
+  const event = new Date(eventDate)
+  const years = event.getFullYear() - dob.getFullYear()
+  const birthdayThisYear = new Date(event.getFullYear(), dob.getMonth(), dob.getDate())
+  return event >= birthdayThisYear ? years : years - 1
 }
 
 /**

@@ -64,6 +64,7 @@ export type MetricKey =
   | 'average_heartrate'
   | 'max_heartrate'
   | 'suffer_score'
+  | 'age_grade' // computed: WMA age-grade %
 
 export const METRIC_LABELS: Record<MetricKey, string> = {
   start_date: 'Date',
@@ -76,6 +77,7 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   average_heartrate: 'Avg Heart Rate',
   max_heartrate: 'Max Heart Rate',
   suffer_score: 'Suffer Score',
+  age_grade: 'Age Grade (%)',
 }
 
 export function getMetricValue(activity: StravaActivity, metric: MetricKey): number {
@@ -100,5 +102,9 @@ export function getMetricValue(activity: StravaActivity, metric: MetricKey): num
       return activity.max_heartrate ?? 0
     case 'suffer_score':
       return activity.suffer_score ?? 0
+    case 'age_grade':
+      // Derived metric requiring athlete context — computed in the component layer.
+      // Returning 0 here is a safe fallback that should never be reached in normal use.
+      return 0
   }
 }

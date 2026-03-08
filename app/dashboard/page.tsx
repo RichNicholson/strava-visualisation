@@ -46,6 +46,7 @@ export default function Dashboard() {
   const [showWMA, setShowWMA] = useState(true)
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
   const [roster, setRoster] = useState<Set<number>>(new Set())
+  const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
   // Stable color assignments: activityId -> colorIndex (0-9)
   const [colorAssignments, setColorAssignments] = useState<Map<number, number>>(new Map())
 
@@ -76,6 +77,13 @@ export default function Dashboard() {
       }
       return next
     })
+    // Remove from hidden when removed from roster
+    setHiddenRoster((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
     setColorAssignments((prev) => {
       const next = new Map(prev)
       if (next.has(id)) {
@@ -93,6 +101,21 @@ export default function Dashboard() {
       return next
     })
   }, [roster.size])
+
+  const clearRoster = useCallback(() => {
+    setRoster(new Set())
+    setHiddenRoster(new Set())
+    setColorAssignments(new Map())
+  }, [])
+
+  const toggleHidden = useCallback((id: number) => {
+    setHiddenRoster((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   // Auto-select first activity when entering map mode or when roster changes
   useEffect(() => {
@@ -214,9 +237,12 @@ export default function Dashboard() {
           <RosterPanel
             rosterActivities={rosterActivities}
             onRemove={toggleRoster}
+            onClearAll={clearRoster}
             colorMap={colorMap}
             selectedId={plotMode === 'map' ? selectedActivityId : undefined}
             onSelect={plotMode === 'map' ? setSelectedActivityId : undefined}
+            hiddenIds={hiddenRoster}
+            onToggleHidden={toggleHidden}
           />
         </aside>
 
@@ -269,7 +295,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <SeriesPlot
-                activities={rosterActivities}
+                activities={rosterActivities.filter((a) => !hiddenRoster.has(a.id))}
                 streams={streams}
                 loading={streamsLoading}
                 colorMap={colorMap}
