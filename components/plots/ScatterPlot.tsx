@@ -17,13 +17,8 @@ const COLOR_SCHEMES: Record<ColorScheme, (t: number) => string> = {
   Plasma: d3.interpolatePlasma,
 }
 
-/** Build a contour grade array of `count` values (step 2) centred on `centre`, clamped to [1,100]. */
-function buildContourGrades(centre: number, count = 21): number[] {
-  const rounded = Math.round(centre / 2) * 2
-  const half = Math.floor(count / 2)
-  return Array.from({ length: count }, (_, i) => rounded + (i - half) * 2)
-    .filter((g) => g >= 1 && g <= 100)
-}
+/** Fixed WMA contour grades shown on the scatter plot (40 % … 100 %, step 2). */
+const WMA_CONTOUR_GRADES = d3.range(40, 102, 2)  // [40, 42, 44, …, 100]
 
 function contourColors(grades: number[]): string[] {
   const min = Math.min(...grades)
@@ -180,21 +175,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     if (showWMA && xAxis === 'distance' && yAxis === 'average_pace' && athlete?.sex && (athlete?.dateOfBirth || athlete?.age)) {
       const contourDistances = d3.range(xScale.domain()[0] * 1000, xScale.domain()[1] * 1000, 500)
 
-      // Compute median age grade across visible activities so contours are centred on real data.
-      const grades = plotActivities
-        .filter((a) => a.distance && a.moving_time)
-        .map((a) => {
-          const age = athlete.dateOfBirth
-            ? ageAtDate(athlete.dateOfBirth, a.start_date)
-            : athlete.age!
-          return computeAgeGrade(athlete.sex!, age, a.distance, a.moving_time)
-        })
-        .filter((g): g is number => g !== null && isFinite(g))
-      const median = grades.length > 0
-        ? [...grades].sort((a, b) => a - b)[Math.floor(grades.length / 2)]
-        : 70  // sensible fallback when no activities have computable grades
-
-      const contourGrades = buildContourGrades(median)
+      const contourGrades = WMA_CONTOUR_GRADES
       const colors = contourColors(contourGrades)
 
       contourGrades.forEach((grade, i) => {
@@ -271,13 +252,18 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     // Out-of-bounds markers: no clip-path, clamped to perimeter
     const crossGroup = g.append('g')
 
+    // Sort oldest-first so most-recent points are drawn last (SVG painter's order = on top)
+    const sortedActivities = [...plotActivities].sort(
+      (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
+    )
+
     let colorFn: (a: StravaActivity, i: number) => string
     if (colorMetric === 'index') {
-      // Reverse domain so recent runs (low index) are darker
-      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme]).domain([plotActivities.length, 0])
+      // High index = newest = darker; domain [0, n-1] maps oldest→lightest, newest→darkest
+      const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme]).domain([0, sortedActivities.length - 1])
       colorFn = (_, i) => cs(i)
     } else {
-      const cVals = plotActivities.map((a) => getMetricValue(a, colorMetric as MetricKey))
+      const cVals = sortedActivities.map((a) => getMetricValue(a, colorMetric as MetricKey))
       const cs = d3.scaleSequential(COLOR_SCHEMES[colorScheme])
         .domain([d3.min(cVals)!, d3.max(cVals)!])
       colorFn = (a) => cs(getMetricValue(a, colorMetric as MetricKey))
@@ -285,7 +271,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
 
     // Precompute pixel positions and whether each point is within the plot area
     type PlotDatum = { activity: StravaActivity; rawCx: number; rawCy: number; cx: number; cy: number; oob: boolean; idx: number }
-    const plotData: PlotDatum[] = plotActivities.map((a, idx) => {
+    const plotData: PlotDatum[] = sortedActivities.map((a, idx) => {
       const rawCx = xScale(getMetricValue(a, xAxis))
       const rawCy = yScale(getYValue(a)!)
       const oob = rawCx < 0 || rawCx > innerW || rawCy < 0 || rawCy > innerH
@@ -308,11 +294,12 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     const outBoundsSelected = outBoundsData.filter((d) => roster?.has(d.activity.id))
 
     // ── In-bounds: circles (unselected, then selected) ───────────────────────
-    const renderCircles = (data: typeof inBoundsData, selected: boolean) => {
-      dotsGroup.selectAll(selected ? 'circle.selected' : 'circle.unselected')
+    // Visual circles — appearance only, no pointer events (hit areas handle interaction)
+    const renderCirclesVisual = (data: typeof inBoundsData, selected: boolean) => {
+      dotsGroup.selectAll(selected ? 'circle.vis-selected' : 'circle.vis-unselected')
         .data(data)
         .join('circle')
-        .attr('class', selected ? 'selected' : 'unselected')
+        .attr('class', selected ? 'vis-selected' : 'vis-unselected')
         .attr('cx', (d) => d.cx)
         .attr('cy', (d) => d.cy)
         .attr('r', selected ? 8 : 5)
@@ -325,6 +312,20 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
         .attr('stroke', 'white')
         .attr('stroke-width', 1)
         .attr('opacity', 0.9)
+        .attr('pointer-events', 'none')
+    }
+
+    // Invisible hit-area circles — larger radius, carry all event handlers
+    const renderCirclesHit = (data: typeof inBoundsData, selected: boolean) => {
+      dotsGroup.selectAll(selected ? 'circle.hit-selected' : 'circle.hit-unselected')
+        .data(data)
+        .join('circle')
+        .attr('class', selected ? 'hit-selected' : 'hit-unselected')
+        .attr('cx', (d) => d.cx)
+        .attr('cy', (d) => d.cy)
+        .attr('r', 12)
+        .attr('fill', 'transparent')
+        .attr('stroke', 'none')
         .style('cursor', 'pointer')
         .on('click', function (event: MouseEvent, d) {
           event.stopPropagation()
@@ -339,14 +340,16 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           const rect = svgRef.current!.getBoundingClientRect()
           setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, activity: d.activity })
         })
-        .on('mouseleave', function (event: MouseEvent, d) {
-          d3.select(this).attr('r', selected ? 8 : 5).attr('opacity', 0.9)
+        .on('mouseleave', function () {
           setTooltip(null)
         })
     }
 
-    renderCircles(inBoundsUnselected, false)
-    renderCircles(inBoundsSelected, true)
+    // Render order: visuals first (unselected → selected), then hit areas on top (same order)
+    renderCirclesVisual(inBoundsUnselected, false)
+    renderCirclesVisual(inBoundsSelected, true)
+    renderCirclesHit(inBoundsUnselected, false)
+    renderCirclesHit(inBoundsSelected, true)
 
     // ── Out-of-bounds: × markers clamped to perimeter (unselected, then selected) ────
     const S = 5  // half-size of the × arms
@@ -443,6 +446,9 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           >
             Auto-scale
           </button>
+          {viewDomain && (
+            <span className="text-xs text-gray-400 italic">or double-click plot</span>
+          )}
 
           {/* WMA note */}
           {showWMA && xAxis === 'distance' && yAxis === 'average_pace' && (
@@ -484,34 +490,61 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
         ref={containerRef}
         className="flex-1 relative min-h-0"
         onDoubleClick={autoScale}
-        title="Double-click to auto-scale"
       >
         <svg ref={svgRef} className="w-full h-full" />
 
         {/* Zoom / scale hint */}
 
         {/* Tooltip */}
-        {tooltip && (
-          <div
-            className="absolute pointer-events-none bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm z-10"
-            style={{ left: tooltip.x + 12, top: tooltip.y - 40 }}
-          >
-            <p className="font-semibold text-gray-800 truncate max-w-48">{tooltip.activity.name}</p>
-            <p className="text-gray-500">
-              {new Date(tooltip.activity.start_date).toLocaleDateString()}
-            </p>
-            <p className="text-gray-600">{(tooltip.activity.distance / 1000).toFixed(2)} km</p>
-            {tooltip.activity.average_speed > 0 && (
-              <p className="text-gray-600">
-                {(() => {
-                  const pace = 1000 / tooltip.activity.average_speed
-                  return `${Math.floor(pace / 60)}:${String(Math.round(pace % 60)).padStart(2, '0')} /km avg`
-                })()}
+        {tooltip && (() => {
+          const act = tooltip.activity
+          const age = athlete?.dateOfBirth
+            ? ageAtDate(athlete.dateOfBirth, act.start_date)
+            : null
+          const ageGrade = age !== null && athlete?.sex && act.distance > 0 && act.moving_time > 0
+            ? computeAgeGrade(athlete.sex, age, act.distance, act.moving_time)
+            : null
+          return (
+            <div
+              className="absolute pointer-events-none bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm z-10 max-w-xs"
+              style={{ left: tooltip.x + 12, top: tooltip.y - 40 }}
+            >
+              <p className="font-semibold text-gray-800">{act.name}</p>
+              <p className="text-gray-500">
+                {new Date(act.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
               </p>
-            )}
-            <p className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-100">Right click to view in Strava</p>
-          </div>
-        )}
+              <p className="text-gray-600">{(act.distance / 1000).toFixed(2)} km</p>
+              {act.moving_time > 0 && (
+                <p className="text-gray-600">
+                  {(() => {
+                    const t = act.moving_time
+                    const h = Math.floor(t / 3600)
+                    const m = Math.floor((t % 3600) / 60)
+                    const s = t % 60
+                    return h > 0
+                      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+                      : `${m}:${String(s).padStart(2, '0')}`
+                  })()}
+                </p>
+              )}
+              {act.average_speed > 0 && (
+                <p className="text-gray-600">
+                  {(() => {
+                    const pace = 1000 / act.average_speed
+                    return `${Math.floor(pace / 60)}:${String(Math.round(pace % 60)).padStart(2, '0')} /km avg`
+                  })()}
+                </p>
+              )}
+              {age !== null && (
+                <p className="text-gray-600">Age: {age}</p>
+              )}
+              {ageGrade !== null && (
+                <p className="text-gray-600">Age grade: {ageGrade.toFixed(1)}%</p>
+              )}
+              <p className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-100">Right click to view in Strava</p>
+            </div>
+          )
+        })()}
 
         {activities.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400">

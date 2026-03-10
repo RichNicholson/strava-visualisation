@@ -1,6 +1,17 @@
 import Dexie, { Table } from 'dexie'
 import type { StravaActivity, ActivityStream, Athlete } from '../strava/types'
 
+// ── E2E fixture types ─────────────────────────────────────────────────────────
+
+export interface E2EFixture {
+  /** Schema version — increment when the shape changes */
+  version: number
+  athlete: Athlete
+  activities: StravaActivity[]
+  /** Streams for a subset of activities (e.g. rostered runs only) */
+  streams: ActivityStream[]
+}
+
 export class StravaDB extends Dexie {
   activities!: Table<StravaActivity>
   streams!: Table<ActivityStream>
@@ -35,5 +46,34 @@ export async function clearAll(): Promise<void> {
     db.activities.clear(),
     db.streams.clear(),
     db.athlete.clear(),
+  ])
+}
+
+/**
+ * Export a fixture containing all activities and streams for the given activity
+ * IDs (e.g. rostered runs). Returns null if no athlete record exists.
+ */
+export async function exportFixture(streamActivityIds: number[]): Promise<E2EFixture | null> {
+  const [athlete, activities, streams] = await Promise.all([
+    db.athlete.toArray(),
+    db.activities.toArray(),
+    streamActivityIds.length > 0
+      ? db.streams.where('activityId').anyOf(streamActivityIds).toArray()
+      : Promise.resolve([]),
+  ])
+  if (!athlete[0]) return null
+  return { version: 1, athlete: athlete[0], activities, streams }
+}
+
+/**
+ * Seed the local database from an E2E fixture.
+ * Existing data is cleared first so tests start from a known state.
+ */
+export async function seedFromFixture(fixture: E2EFixture): Promise<void> {
+  await clearAll()
+  await Promise.all([
+    db.athlete.put(fixture.athlete),
+    db.activities.bulkPut(fixture.activities),
+    fixture.streams.length > 0 ? db.streams.bulkPut(fixture.streams) : Promise.resolve(),
   ])
 }

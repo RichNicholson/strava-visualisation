@@ -16,16 +16,29 @@
 | ✅ 8 | US12-Series-Hide-Remove-Runs.md | Hide and remove runs from series plot | High | Medium | Enables focused comparison of specific race efforts without losing the full roster |
 | ✅ 9 | US4-Roster-Navigate-To-Map.md | Navigate from roster to map | Medium | Medium | Streamlines race review workflow; wires existing `plotMode` and `selectedActivityId` state |
 | ✅ 10 | US1-Filter-Heart-Rate-Filter.md | Heart rate filter | Medium | Medium | Useful for isolating race-intensity efforts; enables US2 (dynamic filters) |
-| 11 | US3-Filter-Improve-Preset-UX.md | Improve filter preset loading UX | Medium | Medium | Speeds up recurring race-analysis workflows (e.g. a "5k Races" preset) |
+| ✅ 11 | US3-Filter-Improve-Preset-UX.md | Improve filter preset loading UX | Medium | Medium | Speeds up recurring race-analysis workflows (e.g. a "5k Races" preset) |
 | ✅ 12 | US15-Settings-Resync-Clear-Data.md | Re-sync and clear data options | Low | Medium | Maintenance utility; not race-specific but important for data integrity |
-| 13 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1; significant FilterPanel refactor; more quality-of-life than race analysis |
-| 14 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
-| 15 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land |
+| ✅ 13 | US21-Scatter-Move-Autoscale-Hint.md | Move autoscale hint out of tooltip | Low | Low | Quick win; one-component change removes tooltip clutter that obscures data during analysis |
+| ✅ 14 | US23-Scatter-Larger-Hitbox.md | Larger scatter plot hitbox | Medium | Low | Quick win; directly improves the roster-building workflow central to race comparison |
+| ✅ — | US26-Infra-E2E-Fixture-Seeding.md | E2E test infrastructure with fixture seeding | — | Low | Infrastructure; added out-of-band to unblock Playwright verification of all future stories |
+| ✅ 15 | US22-Scatter-Improved-Tooltip.md | Improved scatter plot tooltip | High | Medium | Adds age-grade and full description to hover — key race-analysis context without leaving the scatter view |
+| ✅ 16 | US19-Series-Defaults-And-Autoscale.md | Series plot defaults and manual autoscale | Medium | Low | Quick win; defaulting to cumulative pace + moving time matches the primary race-analysis use case; removes jarring axis resets |
+| ✅ 17 | US16-Filter-Date-Distance-Quick-Presets.md | Quick date and distance range presets | Medium | Low | Quick win; drastically improves filtering 17 years of data down to recent race-relevant runs |
+| 18 | US17-Filter-Panel-Layout.md | Reorganise filter panel layout | Medium | Low | Quick win; layout-only change that promotes presets and clarifies panel structure |
+| 19 | US25-Series-Time-Delta-Plot.md | Time delta plot | High | High | Core race-analysis feature — directly answers "where did I gain/lose time?"; new pure-function module enables unit testing |
+| 20 | US18-Series-Crosshair-Linked-Map.md | Series crosshair with linked map marker | High | High | Links pace data to geography — high value for race review; pairs with US25 for pinpointing time gains/losses on course |
+| 21 | US20-Scatter-Axis-Constrained-Zoom.md | Axis-constrained zoom on scatter plot | Medium | Medium | Useful for isolating a pace or distance band; enhances existing brush-to-zoom |
+| 22 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1 (done); significant FilterPanel refactor; more quality-of-life than race analysis |
+| 23 | US24-Deployment-Guidance.md | Deployment guidance spike | Medium | Low | Research-only output; no code changes but important for taking the app live |
+| 24 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
+| 25 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land. Enables full value of US18 (crosshair + map link) |
 
 ## Notes
 
-- **US1 → US2 dependency**: US2 (dynamic filter controls) assumes heart rate is one of the addable filters, so US1 should land first. They are kept adjacent in the lower half of the backlog since neither is on the critical path for race analysis.
-- **Quick-win cluster (1–5)**: All five are Low-effort, single- or two-file changes. Shipping them as a batch would noticeably polish the UI before the heavier race-analysis work begins.
-- **Series plot cluster (7–8)**: US11 (moving average) and US12 (hide/remove runs) are tightly coupled — both modify `SeriesPlot.tsx` and the roster interaction model. Implementing them back-to-back avoids rework.
-- **US10 risk**: The tileable layout is the highest-risk item — it rearchitects the dashboard's single-`plotMode` model. Deferring it to last ensures it doesn't destabilise features built on the current tab-based layout.
-- **Age-grade (US6)** is the highest-value single story for the race analysis goal. It now includes a date-of-birth setting change and per-activity integer-age calculation (no fractional interpolation), which adds SettingsPanel and `ageGrade.ts` scope. Still medium effort but toward the upper end. If the team can only pick one medium-effort item to fast-follow the quick wins, this is the one.
+- **Quick-win cluster (13–18)**: Six low-effort stories that improve scatter, series, and filter UX. Shipping them before the heavier items keeps momentum and removes daily friction.
+- **US22 depends on US6**: The improved tooltip shows age-grade, which relies on the date-of-birth setting and `computeAgeGrade` delivered in US6 (done).
+- **Series analysis cluster (19–20)**: US25 (time delta) and US18 (crosshair + linked map) are the two highest-value remaining analysis features. US18's linked map marker is most useful once US10 (tileable layout) lands, but the crosshair alone is valuable. US25 is independent.
+- **US18 ↔ US10 soft dependency**: The linked map marker in US18 requires series and map visible simultaneously — currently only possible by switching tabs. Full value unlocks after US10, but the series crosshair ships independently.
+- **US2 no longer blocked**: US1 (heart rate filter) is done, so US2 can proceed. It remains lower priority because it's a large FilterPanel refactor with a quality-of-life rather than race-analysis payoff.
+- **US10 risk**: Tileable layout is still the highest-risk item — it rearchitects the dashboard's single-`plotMode` model. Deferring it near the end ensures it doesn't destabilise features built on the current tab-based layout.
+- **Deployment (US24)**: Slotted after analysis features but before the two biggest refactors. It's low effort and timely if the app is approaching a shareable state.

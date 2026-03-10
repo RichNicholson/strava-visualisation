@@ -29,6 +29,7 @@ export interface ActivityStream {
   heartrate?: number[]
   velocity_smooth?: number[]
   cadence?: number[]
+  moving?: boolean[]  // per-sample boolean from Strava's MovingStream
 }
 
 export interface Athlete {

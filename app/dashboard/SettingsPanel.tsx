@@ -1,21 +1,41 @@
 'use client'
 
 import { useState } from 'react'
-import { db, clearAll } from '../../lib/db/schema'
+import { db, clearAll, exportFixture } from '../../lib/db/schema'
 import type { Athlete } from '../../lib/strava/types'
 
 interface SettingsPanelProps {
   athlete: Athlete | null
+  rosterIds?: number[]
   onClose: () => void
   onFullResync: () => void
 }
 
-export function SettingsPanel({ athlete, onClose, onFullResync }: SettingsPanelProps) {
+export function SettingsPanel({ athlete, rosterIds = [], onClose, onFullResync }: SettingsPanelProps) {
   const [dateOfBirth, setDateOfBirth] = useState(athlete?.dateOfBirth ?? '')
   const [sex, setSex] = useState<'M' | 'F'>(athlete?.sex ?? 'M')
   const [saving, setSaving] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExportFixture() {
+    setExporting(true)
+    try {
+      const fixture = await exportFixture(rosterIds)
+      if (!fixture) return
+      const json = JSON.stringify(fixture, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `stravaviz-fixture-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function handleClearData() {
     setClearing(true)
@@ -129,6 +149,15 @@ export function SettingsPanel({ athlete, onClose, onFullResync }: SettingsPanelP
             className="w-full py-2 border border-gray-200 text-sm text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
           >
             Re-sync all
+          </button>
+
+          <button
+            onClick={handleExportFixture}
+            disabled={exporting}
+            className="w-full py-2 border border-gray-200 text-sm text-gray-700 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+            title={rosterIds.length > 0 ? `Exports all activities + streams for ${rosterIds.length} rostered run(s)` : 'Exports all activities (add runs to roster to include their streams)'}
+          >
+            {exporting ? 'Exporting…' : `Export test fixture${rosterIds.length > 0 ? ` (${rosterIds.length} streams)` : ''}`}
           </button>
 
           {!confirmClear ? (

@@ -107,6 +107,7 @@ export async function syncStreamsForActivity(
     heartrate: (raw.heartrate?.data ?? []) as number[],
     velocity_smooth: (raw.velocity_smooth?.data ?? []) as number[],
     cadence: (raw.cadence?.data ?? []) as number[],
+    moving: (raw.moving?.data ?? []) as boolean[],
   }
 
   await db.streams.put(stream)

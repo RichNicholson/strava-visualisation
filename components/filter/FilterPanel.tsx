@@ -21,6 +21,15 @@ const DIST_MIN = 0
 const DIST_MAX = 100 * 1000      // 100 km
 const DIST_SLIDER_MAX = DIST_MAX + DIST_STEP  // 101 km — sentinel position
 const DIST_NO_MAX = Number.MAX_SAFE_INTEGER
+const TEN_K_DIST = 10_500      // 10 km + tolerance for slightly long runs
+const MARATHON_DIST = 45_000   // marathon + tolerance for slightly long efforts
+
+const DATE_PRESETS: { label: string; months: number | null }[] = [
+  { label: '6 mo', months: 6 },
+  { label: '1 yr', months: 12 },
+  { label: '2 yr', months: 24 },
+  { label: 'All', months: null },
+]
 
 function formatDistance(metres: number): string {
   if (metres >= DIST_SLIDER_MAX) return '100+ km'
@@ -83,6 +92,31 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
   function resetFilter() {
     onChange({ dateRange: null, distanceRange: null, sport: [], pace: { average: { min: 3 * 60, max: 10 * 60 } }, heartrate: null })
   }
+
+  function setDatePreset(months: number | null) {
+    if (months === null) {
+      onChange({ ...filter, dateRange: null })
+      return
+    }
+    const from = new Date()
+    from.setMonth(from.getMonth() - months)
+    from.setHours(0, 0, 0, 0)
+    const to = new Date()
+    to.setHours(23, 59, 59, 999)
+    onChange({ ...filter, dateRange: { from: from.toISOString(), to: to.toISOString() } })
+  }
+
+  function isDatePresetActive(months: number | null): boolean {
+    if (months === null) return filter.dateRange === null
+    if (!filter.dateRange) return false
+    const expected = new Date()
+    expected.setMonth(expected.getMonth() - months)
+    // Compare at day granularity — preset is active if from-date matches today - N months
+    return new Date(filter.dateRange.from).toDateString() === expected.toDateString()
+  }
+
+  const isTenKPresetActive = filter.distanceRange?.min === 0 && filter.distanceRange?.max === TEN_K_DIST
+  const isMarathonPresetActive = filter.distanceRange?.min === 0 && filter.distanceRange?.max === MARATHON_DIST
 
   const dateMin = new Date(dateBounds.min).getTime()
   const dateMax = new Date(dateBounds.max).getTime()
@@ -154,6 +188,21 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       {/* Date range */}
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Date range</p>
+        <div className="grid grid-cols-4 gap-1">
+          {DATE_PRESETS.map(({ label, months }) => (
+            <button
+              key={label}
+              onClick={() => setDatePreset(months)}
+              className={`py-0.5 text-xs rounded border transition-colors text-center ${
+                isDatePresetActive(months)
+                  ? 'bg-orange-500 text-white border-orange-500'
+                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <RangeSlider
           min={dateMin}
           max={dateMax}
@@ -168,6 +217,28 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       {/* Distance range */}
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Distance</p>
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: TEN_K_DIST } })}
+            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+              isTenKPresetActive
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+            }`}
+          >
+            &lt; 10k
+          </button>
+          <button
+            onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: MARATHON_DIST } })}
+            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+              isMarathonPresetActive
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+            }`}
+          >
+            &lt; Marathon
+          </button>
+        </div>
         <RangeSlider
           min={DIST_MIN}
           max={DIST_SLIDER_MAX}

@@ -6,7 +6,7 @@ import type { StravaActivity, Athlete } from '../../lib/strava/types'
 import type { ActivityStream } from '../../lib/strava/types'
 import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
 
-type YMetric = 'cumulative' | 'rolling' | 'heartrate' | 'elevation' | 'cadence'
+type YMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence'
 type XMetric = 'distance' | 'time'
 
 interface SeriesPlotProps {
@@ -15,6 +15,7 @@ interface SeriesPlotProps {
   loading?: boolean
   colorMap?: Map<number, string>
   athlete?: Athlete | null
+  baselineId?: number | null
 }
 
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
@@ -22,27 +23,36 @@ const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
 const Y_LABELS: Record<YMetric, string> = {
   cumulative: 'Pace (min/km)',
   rolling: 'Rolling Pace (min/km)',
+  raw: 'Raw Pace (min/km)',
   heartrate: 'Heart Rate (bpm)',
   elevation: 'Elevation (m)',
   cadence: 'Cadence (spm)',
 }
 
-const ROLLING_WINDOW_M = 500   // rolling pace = mean pace of last 500 m
+const ROLLING_WINDOW_S = 1200  // rolling pace window: 20 minutes
+const RAW_WINDOW_S     = 60    // standalone raw pace window: 60 seconds
+const ROLLING_SKIP_M   = 200   // skip first 200 m — noisy GPS startup
 const MAX_PACE_S_PER_KM = 900  // 15 min/km - clamp y-axis slow end
 const MIN_PACE_S_PER_KM = 120  // 2 min/km - discard GPS-jump artefacts
 
 /**
- * Rolling pace: at each point, find the point ~500 m behind and compute
+ * Rolling pace: at each point, find the sample ~windowS seconds behind and compute
  * (time[i] − time[j]) / (distance[i] − distance[j]) × 1000  →  s/km.
- * For early points where < 500 m has elapsed, use all data from the start.
+ * Returns NaN until a full windowS of data has elapsed.
  */
-function rollingPace(time: number[], distance: number[], windowM: number): number[] {
+function rollingPace(time: number[], distance: number[], windowS: number): number[] {
   const result: number[] = new Array(time.length)
   let left = 0
 
-  for (let i = 0; i < distance.length; i++) {
-    const target = distance[i] - windowM
-    while (left < i && distance[left + 1] <= target) left++
+  for (let i = 0; i < time.length; i++) {
+    const target = time[i] - windowS
+    while (left < i && time[left + 1] <= target) left++
+
+    // Require a full window before plotting
+    if (time[i] - time[0] < windowS) {
+      result[i] = NaN
+      continue
+    }
 
     const dd = distance[i] - distance[left]
     const dt = time[i] - time[left]
@@ -53,47 +63,78 @@ function rollingPace(time: number[], distance: number[], windowM: number): numbe
   return result
 }
 
+/** Format seconds as m:ss or h:mm:ss */
+function fmtTime(secs: number): string {
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = Math.round(secs % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 /**
- * Gap (seconds) between consecutive stream samples that indicates the watch
- * was paused.  Strava normalises activity streams to ~1 sample/second, so a
- * jump of more than 3 s means the watch was not recording.
+ * Speed (m/s) below which a sample is considered stationary when
+ * velocity_smooth is available.  0.5 m/s ≈ a very slow shuffle — anything
+ * below that is a genuine stop.
  */
-const PAUSE_GAP_S = 3
+const MOVING_SPEED_THRESHOLD = 0.5
+
+/**
+ * Fallback gap threshold (seconds) used when no velocity stream is present.
+ * A value of 60 s safely handles both 1-second and smart-recording (Garmin
+ * event-based) streams: genuine watch pauses are at least a minute long,
+ * whereas smart-recording gaps between active movement samples are typically
+ * 5–30 s and must not be excluded.
+ */
+const PAUSE_GAP_FALLBACK_S = 60
 
 /**
  * Build a moving-time array from the raw time stream.
  *
- * "Moving time" = accumulated watch-on time: every consecutive sample gap
- * that is <= PAUSE_GAP_S is counted; larger gaps are watch pauses and are
- * excluded.  This matches the user's expectation: moving time stops
- * incrementing only when the watch is paused, not based on speed.
+ * Priority:
+ * 1. moving[] (Strava MovingStream boolean) — the authoritative source;
+ *    Strava itself uses this to compute moving time.
+ * 2. velocitySmooth[] — heuristic fallback: sample is moving when speed
+ *    exceeds MOVING_SPEED_THRESHOLD (0.5 m/s).  Works well for both 1-second
+ *    and smart-recording (event-based Garmin) streams.
+ * 3. Gap threshold — last resort when neither stream is present: gaps
+ *    ≤ PAUSE_GAP_FALLBACK_S are counted as moving.
  *
  * Elapsed time is just stream.time directly (seconds since activity start,
  * including any pause gaps).
  */
-function buildMovingTime(time: number[]): number[] {
+function buildMovingTime(time: number[], moving?: boolean[], velocitySmooth?: number[]): number[] {
   const result: number[] = new Array(time.length)
   let mt = 0
   result[0] = 0
   for (let i = 1; i < time.length; i++) {
     const dt = time[i] - time[i - 1]
-    if (dt > 0 && dt <= PAUSE_GAP_S) mt += dt
+    if (dt > 0) {
+      if (moving && moving.length > 0) {
+        if (moving[i]) mt += dt
+      } else if (velocitySmooth && velocitySmooth.length > 0) {
+        if (velocitySmooth[i] > MOVING_SPEED_THRESHOLD) mt += dt
+      } else {
+        if (dt <= PAUSE_GAP_FALLBACK_S) mt += dt
+      }
+    }
     result[i] = mt
   }
   return result
 }
 
-export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: SeriesPlotProps) {
+export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId }: SeriesPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const dragStateRef = useRef({ isDragging: false, distanceMetres: 0 })
   const yScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
   const xScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
-  const [yMetric, setYMetric] = useState<YMetric>('rolling')
+  const [yMetric, setYMetric] = useState<YMetric>('cumulative')
   const [xMetric, setXMetric] = useState<XMetric>('distance')
   const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
   const [yViewDomain, setYViewDomain] = useState<[number, number] | null>(null)
+  const [yScaleMode, setYScaleMode] = useState<'auto' | '1min' | '2min'>('auto')
   const [showWMA, setShowWMA] = useState(true)
   // null = not yet seeded; on first render with pace data we compute from median
   const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
@@ -120,8 +161,31 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
     if (medianAgeGrade !== null) setAgeGradePercent(medianAgeGrade)
   }, [medianAgeGrade])
 
-  // Reset y-axis lock when the metric or time mode changes
-  useEffect(() => { setYViewDomain(null) }, [yMetric, xMetric, timeMode])
+  // Reset locked domain whenever the axes or time mode change — stale domains from
+  // a previous metric would otherwise produce completely wrong scales.
+  useEffect(() => {
+    setYViewDomain(null)
+  }, [yMetric, xMetric, timeMode])
+
+  // DEBUG: compare GPS distance vs velocity_smooth-integrated distance per activity
+  const distanceDebug = useMemo(() => {
+    return activities.map((a) => {
+      const stream = streams.get(a.id)
+      if (!stream) return null
+      const officialDist = stream.distance?.at(-1) ?? 0
+      let integrated = 0
+      if (stream.velocity_smooth && stream.time) {
+        for (let i = 1; i < stream.time.length; i++) {
+          const dt = stream.time[i] - stream.time[i - 1]
+          integrated += stream.velocity_smooth[i] * dt
+        }
+      }
+      const nSamples = stream.time?.length ?? 0
+      const totalTime = nSamples > 1 ? (stream.time!.at(-1)! - stream.time![0]) : 0
+      const avgInterval = nSamples > 1 ? totalTime / (nSamples - 1) : 0
+      return { name: a.name, officialDist, integrated, avgInterval, nSamples }
+    }).filter(Boolean) as { name: string; officialDist: number; integrated: number; avgInterval: number; nSamples: number }[]
+  }, [activities, streams])
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -137,6 +201,10 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete }: 
     const innerW = width - MARGIN.left - MARGIN.right
     const innerH = height - MARGIN.top - MARGIN.bottom
     svg.attr('width', width).attr('height', height)
+
+    svg.append('defs')
+      .append('clipPath').attr('id', 'series-clip')
+      .append('rect').attr('width', innerW).attr('height', innerH)
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
 
@@ -155,7 +223,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         case 'cumulative': {
           // Cumulative: time / distance at each point → s/km
           const t = stream.time && stream.distance
-            ? (timeMode === 'moving' ? buildMovingTime(stream.time) : stream.time)
+            ? (timeMode === 'moving' ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth) : stream.time)
             : undefined
           yData = t && stream.distance
             ? stream.distance.map((d, i) => d > 0 ? (t[i] / d) * 1000 : NaN)
@@ -163,13 +231,28 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           break
         }
         case 'rolling': {
-          // Rolling: mean pace over last 500 m
-          const t = stream.time && stream.distance
-            ? (timeMode === 'moving' ? buildMovingTime(stream.time) : stream.time)
-            : undefined
-          yData = t && stream.distance
-            ? rollingPace(t, stream.distance, ROLLING_WINDOW_M)
-            : undefined
+          // Rolling: mean pace over last 1000 m.
+          //
+          // moving mode — use moving time within the 1000 m window so that
+          //   stops don't inflate pace; the line naturally has a gap during
+          //   stopped samples because the moving-time clock doesn't advance.
+          // elapsed mode — use wall-clock time; pace inflates (goes slow)
+          //   while the watch is paused, showing the full time cost of stops.
+          if (!stream.time || !stream.distance) break
+          const t = timeMode === 'moving'
+            ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
+            : stream.time
+          yData = rollingPace(t, stream.distance, ROLLING_WINDOW_S)
+          break
+        }
+        case 'raw': {
+          // Raw pace: same Δt/Δd formula as rolling but over a shorter 30-second
+          // window for finer resolution, using GPS distance to match Strava's figures.
+          if (!stream.distance || !stream.time) break
+          const t = timeMode === 'moving'
+            ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
+            : stream.time
+          yData = rollingPace(t, stream.distance, RAW_WINDOW_S)
           break
         }
         case 'heartrate':
@@ -185,9 +268,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
 
       if (!yData || !xData || xData.length === 0) continue
 
-      // Skip the first 500 m for both pace modes (noisy GPS startup)
+      // Skip the first N metres for pace modes (noisy GPS startup)
       const distData = stream.distance ?? xData
-      const minDist = (yMetric === 'rolling' || yMetric === 'cumulative') ? ROLLING_WINDOW_M : 0
+      const minDist = (yMetric === 'rolling' || yMetric === 'cumulative') ? ROLLING_SKIP_M : 0
 
       const points: Point[] = xData
         .map((x, i) => ({ x, y: yData![i], dist: distData[i] }))
@@ -195,7 +278,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         .map(({ x, y }) => ({ x, y }))
 
       // Separate out-of-bounds points (pace slower than 15 min/km)
-      const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling'
+      const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling' || yMetric === 'raw'
       const oobPoints: Point[] = isPaceMetric
         ? xData
             .map((x, i) => ({ x, y: yData![i], dist: distData[i] }))
@@ -214,15 +297,39 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
     const allY = series.flatMap((s) => s.points.map((p) => p.y))
 
     const xScale = d3.scaleLinear().domain([0, d3.max(allX)!]).range([0, innerW])
-    const isPace = yMetric === 'cumulative' || yMetric === 'rolling'
+    const isPace = yMetric === 'cumulative' || yMetric === 'rolling' || yMetric === 'raw'
 
-    // Compute natural y-domain from current data, then lock it (or use locked value)
-    const clampedMaxY = isPace ? Math.min(d3.max(allY)!, MAX_PACE_S_PER_KM) : d3.max(allY)!
+    // Compute natural y-domain from current data, then lock it (or use locked value).
+    // For pace, filter allY to the valid range before computing the fast-end bound so
+    // that near-zero cumulative pace samples at run-start don't blow out the scale.
+    const allYValid = isPace
+      ? allY.filter((y) => y >= MIN_PACE_S_PER_KM && y <= MAX_PACE_S_PER_KM)
+      : allY
+    const clampedMaxY = isPace ? Math.min(d3.max(allYValid)!, MAX_PACE_S_PER_KM) : d3.max(allY)!
+    const fastEndY = isPace ? Math.max(d3.min(allYValid)!, MIN_PACE_S_PER_KM) : d3.min(allY)!
     const naturalYDomain: [number, number] = isPace
-      ? [clampedMaxY * 1.02, d3.min(allY)! * 0.98]
+      ? [clampedMaxY * 1.02, fastEndY * 0.98]
       : [d3.min(allY)! * 0.95, clampedMaxY * 1.05]
-    const effectiveYDomain = yViewDomain ?? naturalYDomain
-    if (!yViewDomain) setYViewDomain(naturalYDomain)
+
+    let effectiveYDomain: [number, number]
+    if (isPace && (yScaleMode === '1min' || yScaleMode === '2min')) {
+      // Mean of per-series means, excluding out-of-bounds values
+      const seriesMeans = series
+        .map((s) => {
+          const validY = s.points.map((p) => p.y).filter((y) => isFinite(y) && y >= MIN_PACE_S_PER_KM && y <= MAX_PACE_S_PER_KM)
+          return validY.length > 0 ? (d3.mean(validY) ?? null) : null
+        })
+        .filter((m): m is number => m !== null)
+      const meanPace = seriesMeans.length > 0 ? d3.mean(seriesMeans)! : null
+      const halfWindow = yScaleMode === '1min' ? 30 : 60
+      effectiveYDomain = meanPace !== null
+        ? [meanPace + halfWindow, meanPace - halfWindow]
+        : naturalYDomain
+    } else {
+      effectiveYDomain = yViewDomain ?? naturalYDomain
+      if (!yViewDomain) setYViewDomain(naturalYDomain)
+    }
+
     const yScale = d3.scaleLinear().domain(effectiveYDomain).range([innerH, 0]).nice()
     
     // Store scales for drag handler
@@ -282,7 +389,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
 
     // Line generator — no smoothing, straight point-to-point
     // For pace metrics, skip points that exceed the boundary (leave gap; × markers shown instead)
-    const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling'
+    const isPaceMetric = yMetric === 'cumulative' || yMetric === 'rolling' || yMetric === 'raw'
     const lineGen = d3
       .line<Point>()
       .x((d) => xScale(d.x))
@@ -292,11 +399,18 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
 
     const tooltip = tooltipRef.current
 
+    // Clipped group for all series lines and WMA contour — prevents overflow past axes
+    const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
+
     series.forEach((s, i) => {
       const color = colorMap?.get(s.id) ?? colorScale(String(i))
+      const isBaseline = baselineId != null && s.id === baselineId
+      const hasBaseline = baselineId != null
+      const defaultOpacity = hasBaseline ? (isBaseline ? 1 : 0.35) : 0.8
+      const defaultStrokeWidth = isBaseline ? 2.5 : 1.5
 
       // Invisible wide path for easier hover hit area
-      g.append('path')
+      plotGroup.append('path')
         .datum(s.points)
         .attr('fill', 'none')
         .attr('stroke', 'transparent')
@@ -323,8 +437,12 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           }
         })
         .on('mouseleave', function () {
-          g.selectAll<SVGPathElement, unknown>('path.series-line')
-            .attr('opacity', 0.8)
+          // Restore baseline-aware default opacities
+          g.selectAll<SVGPathElement, unknown>('path.series-line[data-baseline="true"]')
+            .attr('opacity', 1)
+            .attr('stroke-width', 2.5)
+          g.selectAll<SVGPathElement, unknown>('path.series-line:not([data-baseline="true"])')
+            .attr('opacity', hasBaseline ? 0.35 : 0.8)
             .attr('stroke-width', 1.5)
           if (tooltip) tooltip.style.display = 'none'
         })
@@ -341,16 +459,37 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
       })
 
       // Visible line
-      g.append('path')
+      plotGroup.append('path')
         .datum(s.points)
         .attr('class', 'series-line')
         .attr('data-id', String(s.id))
+        .attr('data-baseline', isBaseline ? 'true' : 'false')
         .attr('fill', 'none')
         .attr('stroke', color)
-        .attr('stroke-width', 1.5)
-        .attr('opacity', 0.8)
+        .attr('stroke-width', defaultStrokeWidth)
+        .attr('opacity', defaultOpacity)
         .style('pointer-events', 'none')
         .attr('d', lineGen)
+
+      // Actual run time label near right boundary — baseline only
+      if (isPace && isBaseline) {
+        const activity = activities.find((a) => a.id === s.id)
+        const runTimeSecs = timeMode === 'moving'
+          ? activity?.moving_time
+          : activity?.elapsed_time
+        // Last point whose screen x is within the plot area
+        const lastPt = [...s.points].reverse().find((p) => xScale(p.x) <= innerW)
+        if (runTimeSecs && lastPt) {
+          g.append('text')
+            .attr('x', Math.min(xScale(lastPt.x), innerW) - 4)
+            .attr('y', yScale(lastPt.y) - 25)
+            .attr('text-anchor', 'end')
+            .attr('font-size', '22px')
+            .attr('fill', color)
+            .attr('font-weight', '700')
+            .text(fmtTime(runTimeSecs))
+        }
+      }
     })
 
     // ── WMA contour (pace × distance only) ──────────────────────────────────
@@ -382,7 +521,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         .x((d) => xScale(d.distance))
         .y((d) => yScale(d.pace))
 
-      const contourPath = g.append('path')
+      const contourPath = plotGroup.append('path')
         .datum(contourData)
         .attr('fill', 'none')
         .attr('stroke', '#10b981')
@@ -393,7 +532,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         .attr('d', contourLine)
 
       // Wider hit area for easier dragging
-      g.append('path')
+      plotGroup.append('path')
         .datum(contourData)
         .attr('fill', 'none')
         .attr('stroke', 'transparent')
@@ -413,20 +552,39 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           event.preventDefault()
         })
 
-      // Label
-      const midIdx = Math.floor(contourData.length / 2)
-      if (contourData[midIdx]) {
-        g.append('text')
-          .attr('x', xScale(contourData[midIdx].distance))
-          .attr('y', yScale(contourData[midIdx].pace) - 8)
+      // Label — grade + predicted time on the same line, to the right of the grade text
+      const labelIdx = Math.floor(contourData.length / 2)
+      if (contourData[labelIdx]) {
+        const labelX = xScale(contourData[labelIdx].distance)
+        const labelY = yScale(contourData[labelIdx].pace) - 14
+
+        const baselineActivity = baselineId != null ? activities.find((a) => a.id === baselineId) : null
+        const baselineDist = baselineActivity?.distance ?? null  // metres
+        let predictedTimeStr = ''
+        if (baselineDist != null && contourData.length > 0) {
+          const closest = contourData.reduce((best, pt) =>
+            Math.abs(pt.distance - baselineDist) < Math.abs(best.distance - baselineDist) ? pt : best
+          )
+          predictedTimeStr = fmtTime(closest.pace * (baselineDist / 1000))
+        }
+
+        const labelEl = g.append('text')
+          .attr('x', labelX)
+          .attr('y', labelY)
           .attr('text-anchor', 'middle')
-          .attr('font-size', '11px')
+          .attr('font-size', '22px')
           .attr('fill', '#10b981')
           .attr('font-weight', '600')
-          .text(`${effectiveGrade.toFixed(1)}% age grade`)
+
+        labelEl.append('tspan').text(`${effectiveGrade.toFixed(1)}% age grade`)
+        if (predictedTimeStr) {
+          labelEl.append('tspan')
+            .attr('dx', '1em')
+            .text(predictedTimeStr)
+        }
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId])
 
   // Handle drag events for WMA contour
   useEffect(() => {
@@ -483,7 +641,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
       <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 items-center">
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">Y:</span>
-          {(['cumulative', 'rolling', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
@@ -491,7 +649,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m === 'rolling' ? 'rolling' : m}
+              {m === 'cumulative' ? 'cumul.' : m}
             </button>
           ))}
         </div>
@@ -509,13 +667,24 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setYViewDomain(null)}
-          className="px-2 py-0.5 text-xs rounded border border-gray-300 text-gray-500 transition-colors hover:border-orange-400 hover:text-orange-500"
-        >
-          Auto-scale
-        </button>
-          {(yMetric === 'cumulative' || yMetric === 'rolling') && (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-500">scale:</span>
+          {(['auto', '1min', '2min'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => {
+                if (mode === 'auto') setYViewDomain(null)
+                setYScaleMode(mode)
+              }}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                yScaleMode === mode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500'
+              }`}
+            >
+              {mode === 'auto' ? 'auto' : mode === '1min' ? '1 min' : '2 min'}
+            </button>
+          ))}
+        </div>
+          {(yMetric === 'cumulative' || yMetric === 'rolling' || yMetric === 'raw') && (
             <div className="flex items-center gap-1">
               <span className="text-xs text-gray-500">time:</span>
               {(['moving', 'elapsed'] as const).map((m) => (
@@ -576,6 +745,36 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           </div>
         )}
         <svg ref={svgRef} className="w-full h-full" />
+        {/* DEBUG: distance comparison — remove when done */}
+        {yMetric === 'rolling' && distanceDebug.length > 0 && (
+          <div className="absolute top-2 left-2 z-30 bg-white/90 rounded p-2 border-2 border-red-600">
+            <p className="text-red-600 font-black text-lg mb-1">⚠ DEBUG: distance comparison</p>
+            <table className="text-red-600 font-bold text-base">
+              <thead>
+                <tr>
+                  <th className="text-left pr-4">Activity</th>
+                  <th className="text-right pr-4">GPS dist</th>
+                  <th className="text-right pr-4">v_smooth integrated</th>
+                  <th className="text-right pr-4">diff</th>
+                  <th className="text-right pr-4">samples</th>
+                  <th className="text-right">avg interval</th>
+                </tr>
+              </thead>
+              <tbody>
+                {distanceDebug.map((d) => (
+                  <tr key={d.name}>
+                    <td className="pr-4 truncate max-w-48">{d.name}</td>
+                    <td className="text-right pr-4">{(d.officialDist / 1000).toFixed(3)} km</td>
+                    <td className="text-right pr-4">{(d.integrated / 1000).toFixed(3)} km</td>
+                    <td className="text-right pr-4">{((d.integrated - d.officialDist) / d.officialDist * 100).toFixed(2)}%</td>
+                    <td className="text-right pr-4">{d.nSamples}</td>
+                    <td className="text-right">{d.avgInterval.toFixed(2)} s</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {activities.length > 0 && streams.size === 0 && !loading && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
             Stream data not yet loaded — sync activities first

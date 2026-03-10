@@ -16,3 +16,7 @@
 - Relevant files: `components/filter/FilterPresets.tsx`, `hooks/useFilterPresets.ts`
 - Presets are stored in localStorage via `useFilterPresets` — no Dexie changes needed
 - Focus is on UX clarity, not new functionality — the save/load mechanism already works
+
+## Completed
+
+2026-03-08 — Replaced the flat preset list with a `<details>` dropdown (matching the sport-filter pattern); clicking a preset name loads it immediately; empty state shows a helpful prompt.

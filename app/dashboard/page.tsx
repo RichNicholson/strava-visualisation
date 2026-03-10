@@ -119,15 +119,15 @@ export default function Dashboard() {
     })
   }, [])
 
-  // Auto-select first activity when entering map mode or when roster changes
+  // Keep selectedActivityId valid whenever the roster changes, or when first entering
+  // map/series mode. The selection is shared between map (which activity to display)
+  // and series (which trace to highlight as baseline).
   useEffect(() => {
-    if (plotMode === 'map') {
-      const source = roster.size > 0 ? rosterActivities : filteredActivities
-      setSelectedActivityId((prev) =>
-        source.find((a) => a.id === prev) ? prev : (source[0]?.id ?? null)
-      )
-    }
-  }, [plotMode, filteredActivities, rosterActivities, roster])
+    const source = rosterActivities
+    setSelectedActivityId((prev) =>
+      source.find((a) => a.id === prev) ? prev : (source[0]?.id ?? null)
+    )
+  }, [rosterActivities])
 
   // Fetch streams for series mode — uses roster if non-empty
   const streamActivityIds = useMemo(
@@ -243,8 +243,8 @@ export default function Dashboard() {
             onRemove={toggleRoster}
             onClearAll={clearRoster}
             colorMap={colorMap}
-            selectedId={plotMode === 'map' ? selectedActivityId : undefined}
-            onSelect={plotMode === 'map' ? setSelectedActivityId : undefined}
+            selectedId={selectedActivityId}
+            onSelect={setSelectedActivityId}
             hiddenIds={hiddenRoster}
             onToggleHidden={toggleHidden}
           />
@@ -304,6 +304,7 @@ export default function Dashboard() {
                 loading={streamsLoading}
                 colorMap={colorMap}
                 athlete={athlete ?? null}
+                baselineId={selectedActivityId}
               />
             )
           ) : plotMode === 'map' ? (
@@ -338,6 +339,7 @@ export default function Dashboard() {
       {showSettings && (
         <SettingsPanel
           athlete={athlete ?? null}
+          rosterIds={[...roster]}
           onClose={() => setShowSettings(false)}
           onFullResync={() => { setShowSettings(false); startSync(true) }}
         />
