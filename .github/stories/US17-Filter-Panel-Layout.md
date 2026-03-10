@@ -17,3 +17,7 @@
 - Presets already include sport in the saved `FilterState`, so loading a preset will set sport automatically — no extra wiring needed
 - Consider grouping Date/Distance/Pace/HR under a "Filters" sub-heading with a top divider to visually separate from Presets and Sport
 - No logic changes — this is a layout-only refactor
+
+## Completed
+
+**2026-03-10** — Reordered `FilterPanel.tsx` JSX into three visually separated sections (Presets → Sport → Filters), with `<hr>` dividers between each group and a "Filters" sub-heading grouping Date/Distance/Pace/HR.

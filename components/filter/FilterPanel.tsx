@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { FilterState, StravaActivity } from '../../lib/strava/types'
 import { getSportTypes, getDateBounds, getHeartRateBounds } from '../../lib/analysis/filter'
 import { RangeSlider } from './RangeSlider'
@@ -53,6 +53,18 @@ function parseDateInput(raw: string): number | null {
 }
 
 export function FilterPanel({ filter, onChange, allActivities, filteredCount }: FilterPanelProps) {
+  const sportDetailsRef = useRef<HTMLDetailsElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sportDetailsRef.current && !sportDetailsRef.current.contains(e.target as Node)) {
+        sportDetailsRef.current.open = false
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   const sportTypes = useMemo(() => getSportTypes(allActivities), [allActivities])
   // Compute distance/date bounds only for the selected sport types so sliders
   // reflect the actual range of the filtered activity type.
@@ -132,7 +144,8 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
     : [DIST_MIN, DIST_MAX]
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-gray-800">
           Filters
@@ -148,164 +161,176 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         </button>
       </div>
 
-      {/* Sport types */}
+      {/* ── Presets ─────────────────────────────────────────────── */}
+      <hr className="border-t border-gray-200" />
+      <div>
+        <FilterPresets
+          currentFilter={filter}
+          onLoad={onChange}
+        />
+      </div>
+
+      {/* ── Sport ───────────────────────────────────────────────── */}
       {sportTypes.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Sport</p>
-          <details className="relative group">
-            <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-orange-300 list-none">
-              <span className="truncate">
-                {filter.sport.length === 0
-                  ? 'All sports'
-                  : filter.sport.length <= 2
-                  ? filter.sport.join(', ')
-                  : `${filter.sport.length} selected`}
-              </span>
-              <svg className="ml-2 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </summary>
-            <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-              {sportTypes.map((sport) => (
-                <label
-                  key={sport}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-orange-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={filter.sport.length === 0 || filter.sport.includes(sport)}
-                    onChange={() => toggleSport(sport)}
-                    className="accent-orange-500"
-                  />
-                  {sport}
-                </label>
-              ))}
-            </div>
-          </details>
-        </div>
+        <>
+          <hr className="border-t border-gray-200" />
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Sport</p>
+            <details ref={sportDetailsRef} className="relative group">
+              <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-orange-300 list-none">
+                <span className="truncate">
+                  {filter.sport.length === 0
+                    ? 'All sports'
+                    : filter.sport.length <= 2
+                    ? filter.sport.join(', ')
+                    : `${filter.sport.length} selected`}
+                </span>
+                <svg className="ml-2 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </summary>
+              <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+                {sportTypes.map((sport) => (
+                  <label
+                    key={sport}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-orange-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filter.sport.length === 0 || filter.sport.includes(sport)}
+                      onChange={() => toggleSport(sport)}
+                      className="accent-orange-500"
+                    />
+                    {sport}
+                  </label>
+                ))}
+              </div>
+            </details>
+          </div>
+        </>
       )}
 
-      {/* Date range */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Date range</p>
-        <div className="grid grid-cols-4 gap-1">
-          {DATE_PRESETS.map(({ label, months }) => (
+      {/* ── Filters (Date / Distance / Pace / HR) ───────────────── */}
+      <hr className="border-t border-gray-200" />
+      <div className="space-y-4">
+        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Filters</p>
+
+        {/* Date range */}
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">Date range</p>
+          <div className="grid grid-cols-4 gap-1">
+            {DATE_PRESETS.map(({ label, months }) => (
+              <button
+                key={label}
+                onClick={() => setDatePreset(months)}
+                className={`py-0.5 text-xs rounded border transition-colors text-center ${
+                  isDatePresetActive(months)
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <RangeSlider
+            min={dateMin}
+            max={dateMax}
+            step={(dateMax - dateMin) / 200}
+            value={currentDateRange}
+            onChange={setDateRange}
+            formatValue={formatDateInput}
+            parseValue={parseDateInput}
+          />
+        </div>
+
+        {/* Distance range */}
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">Distance</p>
+          <div className="flex gap-1.5">
             <button
-              key={label}
-              onClick={() => setDatePreset(months)}
-              className={`py-0.5 text-xs rounded border transition-colors text-center ${
-                isDatePresetActive(months)
+              onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: TEN_K_DIST } })}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                isTenKPresetActive
                   ? 'bg-orange-500 text-white border-orange-500'
                   : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
               }`}
             >
-              {label}
+              &lt; 10k
             </button>
-          ))}
-        </div>
-        <RangeSlider
-          min={dateMin}
-          max={dateMax}
-          step={(dateMax - dateMin) / 200}
-          value={currentDateRange}
-          onChange={setDateRange}
-          formatValue={formatDateInput}
-          parseValue={parseDateInput}
-        />
-      </div>
-
-      {/* Distance range */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Distance</p>
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: TEN_K_DIST } })}
-            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-              isTenKPresetActive
-                ? 'bg-orange-500 text-white border-orange-500'
-                : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
-            }`}
-          >
-            &lt; 10k
-          </button>
-          <button
-            onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: MARATHON_DIST } })}
-            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-              isMarathonPresetActive
-                ? 'bg-orange-500 text-white border-orange-500'
-                : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
-            }`}
-          >
-            &lt; Marathon
-          </button>
-        </div>
-        <RangeSlider
-          min={DIST_MIN}
-          max={DIST_SLIDER_MAX}
-          step={DIST_STEP}
-          value={currentDistRange}
-          onChange={setDistRange}
-          formatValue={formatDistance}
-          parseValue={parseDistance}
-        />
-      </div>
-
-      {/* Pace */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pace</p>
-        <PaceFilterRow
-          pace={filter.pace}
-          onChange={(pace) => onChange({ ...filter, pace })}
-        />
-      </div>
-
-      {/* Presets */}
-      <FilterPresets
-        currentFilter={filter}
-        onLoad={onChange}
-      />
-
-      {/* Heart rate */}
-      {hrBounds && (
-        <div className="space-y-1.5">
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Heart Rate</p>
+            <button
+              onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: MARATHON_DIST } })}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                isMarathonPresetActive
+                  ? 'bg-orange-500 text-white border-orange-500'
+                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+              }`}
+            >
+              &lt; Marathon
+            </button>
+          </div>
           <RangeSlider
-            min={hrBounds.min}
-            max={hrBounds.max}
-            step={1}
-            value={[
-              filter.heartrate?.min ?? hrBounds.min,
-              filter.heartrate?.max ?? hrBounds.max,
-            ]}
-            onChange={([min, max]) =>
-              onChange({
-                ...filter,
-                heartrate: { min, max, includeNoHR: filter.heartrate?.includeNoHR ?? true },
-              })
-            }
-            formatValue={(v) => `${Math.round(v)} bpm`}
-            parseValue={(raw) => { const n = parseInt(raw); return isNaN(n) ? null : n }}
+            min={DIST_MIN}
+            max={DIST_SLIDER_MAX}
+            step={DIST_STEP}
+            value={currentDistRange}
+            onChange={setDistRange}
+            formatValue={formatDistance}
+            parseValue={parseDistance}
           />
-          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={filter.heartrate?.includeNoHR ?? true}
-              onChange={(e) =>
+        </div>
+
+        {/* Pace */}
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">Pace</p>
+          <PaceFilterRow
+            pace={filter.pace}
+            onChange={(pace) => onChange({ ...filter, pace })}
+          />
+        </div>
+
+        {/* Heart rate */}
+        {hrBounds && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500">Heart Rate</p>
+            <RangeSlider
+              min={hrBounds.min}
+              max={hrBounds.max}
+              step={1}
+              value={[
+                filter.heartrate?.min ?? hrBounds.min,
+                filter.heartrate?.max ?? hrBounds.max,
+              ]}
+              onChange={([min, max]) =>
                 onChange({
                   ...filter,
-                  heartrate: {
-                    min: filter.heartrate?.min ?? hrBounds.min,
-                    max: filter.heartrate?.max ?? hrBounds.max,
-                    includeNoHR: e.target.checked,
-                  },
+                  heartrate: { min, max, includeNoHR: filter.heartrate?.includeNoHR ?? true },
                 })
               }
-              className="accent-orange-500"
+              formatValue={(v) => `${Math.round(v)} bpm`}
+              parseValue={(raw) => { const n = parseInt(raw); return isNaN(n) ? null : n }}
             />
-            Include runs without heart rate data
-          </label>
-        </div>
-      )}
+            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filter.heartrate?.includeNoHR ?? true}
+                onChange={(e) =>
+                  onChange({
+                    ...filter,
+                    heartrate: {
+                      min: filter.heartrate?.min ?? hrBounds.min,
+                      max: filter.heartrate?.max ?? hrBounds.max,
+                      includeNoHR: e.target.checked,
+                    },
+                  })
+                }
+                className="accent-orange-500"
+              />
+              Include runs without heart rate data
+            </label>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

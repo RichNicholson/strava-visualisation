@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FilterState } from '../../lib/strava/types'
 import { useFilterPresets } from '../../hooks/useFilterPresets'
 
@@ -14,15 +14,38 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
   const [name, setName] = useState('')
   const detailsRef = useRef<HTMLDetailsElement>(null)
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (detailsRef.current && !detailsRef.current.contains(e.target as Node)) {
+        detailsRef.current.open = false
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const trimmedName = name.trim()
+  const isUpdate = trimmedName.length > 0 && presets.some((p) => p.name === trimmedName)
+
   function handleSave() {
-    if (!name.trim()) return
-    save(name.trim(), currentFilter)
+    if (!trimmedName) return
+    save(trimmedName, currentFilter)
     setName('')
   }
 
-  function handleLoad(filter: FilterState) {
-    onLoad(filter)
+  function handleLoad(preset: { name: string; filter: FilterState }) {
+    onLoad(preset.filter)
+    // Populate the name field so the user can immediately overwrite with one click
+    setName(preset.name)
     if (detailsRef.current) detailsRef.current.open = false
+  }
+
+  function handleDelete(presetName: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    remove(presetName)
+    // Clear the name field if it was pointing at the deleted preset
+    if (name.trim() === presetName) setName('')
   }
 
   return (
@@ -56,23 +79,24 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
             presets.map((preset) => (
               <div
                 key={preset.name}
-                className="flex items-center gap-1 px-3 py-1.5 hover:bg-orange-50"
+                className="flex items-center gap-1 px-2 py-1.5 hover:bg-orange-50 group/row"
               >
                 <button
-                  onClick={() => handleLoad(preset.filter)}
+                  onClick={() => handleLoad(preset)}
                   className="flex-1 text-left text-sm text-gray-700 truncate"
                 >
                   {preset.name}
                 </button>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    remove(preset.name)
-                  }}
-                  className="text-xs text-gray-400 hover:text-red-500 px-1 shrink-0"
+                  onClick={(e) => handleDelete(preset.name, e)}
+                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover/row:opacity-100 transition-opacity"
                   aria-label={`Delete preset ${preset.name}`}
+                  title="Delete preset"
                 >
-                  ×
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5.5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                    <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                  </svg>
                 </button>
               </div>
             ))
@@ -80,7 +104,7 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
         </div>
       </details>
 
-      {/* Save current filter as a new preset */}
+      {/* Save / update current filter as a preset */}
       <div className="flex gap-1">
         <input
           type="text"
@@ -92,10 +116,10 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
         />
         <button
           onClick={handleSave}
-          disabled={!name.trim()}
-          className="px-2 py-1 text-xs bg-orange-500 text-white rounded disabled:bg-orange-300"
+          disabled={!trimmedName}
+          className="px-2 py-1 text-xs bg-orange-500 text-white rounded disabled:bg-orange-300 whitespace-nowrap"
         >
-          Save
+          {isUpdate ? 'Update' : 'Save'}
         </button>
       </div>
     </div>

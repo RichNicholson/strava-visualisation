@@ -29,7 +29,7 @@ const Y_LABELS: Record<YMetric, string> = {
   cadence: 'Cadence (spm)',
 }
 
-const ROLLING_WINDOW_S = 1200  // rolling pace window: 20 minutes
+const ROLLING_WINDOW_S = 120   // rolling pace window: 2 minutes
 const RAW_WINDOW_S     = 60    // standalone raw pace window: 60 seconds
 const ROLLING_SKIP_M   = 200   // skip first 200 m — noisy GPS startup
 const MAX_PACE_S_PER_KM = 900  // 15 min/km - clamp y-axis slow end
@@ -166,26 +166,6 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   useEffect(() => {
     setYViewDomain(null)
   }, [yMetric, xMetric, timeMode])
-
-  // DEBUG: compare GPS distance vs velocity_smooth-integrated distance per activity
-  const distanceDebug = useMemo(() => {
-    return activities.map((a) => {
-      const stream = streams.get(a.id)
-      if (!stream) return null
-      const officialDist = stream.distance?.at(-1) ?? 0
-      let integrated = 0
-      if (stream.velocity_smooth && stream.time) {
-        for (let i = 1; i < stream.time.length; i++) {
-          const dt = stream.time[i] - stream.time[i - 1]
-          integrated += stream.velocity_smooth[i] * dt
-        }
-      }
-      const nSamples = stream.time?.length ?? 0
-      const totalTime = nSamples > 1 ? (stream.time!.at(-1)! - stream.time![0]) : 0
-      const avgInterval = nSamples > 1 ? totalTime / (nSamples - 1) : 0
-      return { name: a.name, officialDist, integrated, avgInterval, nSamples }
-    }).filter(Boolean) as { name: string; officialDist: number; integrated: number; avgInterval: number; nSamples: number }[]
-  }, [activities, streams])
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -745,36 +725,6 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           </div>
         )}
         <svg ref={svgRef} className="w-full h-full" />
-        {/* DEBUG: distance comparison — remove when done */}
-        {yMetric === 'rolling' && distanceDebug.length > 0 && (
-          <div className="absolute top-2 left-2 z-30 bg-white/90 rounded p-2 border-2 border-red-600">
-            <p className="text-red-600 font-black text-lg mb-1">⚠ DEBUG: distance comparison</p>
-            <table className="text-red-600 font-bold text-base">
-              <thead>
-                <tr>
-                  <th className="text-left pr-4">Activity</th>
-                  <th className="text-right pr-4">GPS dist</th>
-                  <th className="text-right pr-4">v_smooth integrated</th>
-                  <th className="text-right pr-4">diff</th>
-                  <th className="text-right pr-4">samples</th>
-                  <th className="text-right">avg interval</th>
-                </tr>
-              </thead>
-              <tbody>
-                {distanceDebug.map((d) => (
-                  <tr key={d.name}>
-                    <td className="pr-4 truncate max-w-48">{d.name}</td>
-                    <td className="text-right pr-4">{(d.officialDist / 1000).toFixed(3)} km</td>
-                    <td className="text-right pr-4">{(d.integrated / 1000).toFixed(3)} km</td>
-                    <td className="text-right pr-4">{((d.integrated - d.officialDist) / d.officialDist * 100).toFixed(2)}%</td>
-                    <td className="text-right pr-4">{d.nSamples}</td>
-                    <td className="text-right">{d.avgInterval.toFixed(2)} s</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
         {activities.length > 0 && streams.size === 0 && !loading && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
             Stream data not yet loaded — sync activities first
