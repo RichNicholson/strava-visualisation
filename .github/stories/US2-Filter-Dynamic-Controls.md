@@ -17,3 +17,7 @@
 - Relevant files: `components/filter/FilterPanel.tsx` (reorganise into always-on vs optional sections), `lib/strava/types.ts` (extend `FilterState` if new optional filters need fields)
 - This story depends on US1 (heart rate filter) if heart rate is one of the addable filters
 - Keep `applyFilter` pure — optional filter fields should default to `null` meaning "not active"
+
+## Completed
+
+2026-03-11 — Added optional filter tracking (`activeOptionals` state) to `FilterPanel`; date/distance/pace are always visible; heart rate is hidden by default and can be added via an "Add filter" details-based popover and removed via a × button that clears its value from filter state. Verified by 5 Playwright AC tests.

@@ -27,8 +27,8 @@
 | ✅ 18 | US17-Filter-Panel-Layout.md | Reorganise filter panel layout | Medium | Low | Quick win; layout-only change that promotes presets and clarifies panel structure |
 | 19 | US25-Series-Time-Delta-Plot.md | Time delta plot | High | High | Core race-analysis feature — directly answers "where did I gain/lose time?"; new pure-function module enables unit testing |
 | 20 | US18-Series-Crosshair-Linked-Map.md | Series crosshair with linked map marker | High | High | Links pace data to geography — high value for race review; pairs with US25 for pinpointing time gains/losses on course |
-| 21 | US20-Scatter-Axis-Constrained-Zoom.md | Axis-constrained zoom on scatter plot | Medium | Medium | Useful for isolating a pace or distance band; enhances existing brush-to-zoom |
-| 22 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1 (done); significant FilterPanel refactor; more quality-of-life than race analysis |
+| ✅ 21 | US20-Scatter-Axis-Constrained-Zoom.md | Axis-constrained zoom on scatter plot | Medium | Medium | Useful for isolating a pace or distance band; enhances existing brush-to-zoom |
+| ✅ 22 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1 (done); significant FilterPanel refactor; more quality-of-life than race analysis |
 | 23 | US24-Deployment-Guidance.md | Deployment guidance spike | Medium | Low | Research-only output; no code changes but important for taking the app live |
 | 24 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
 | 25 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land. Enables full value of US18 (crosshair + map link) |

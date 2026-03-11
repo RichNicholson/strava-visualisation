@@ -53,6 +53,10 @@ export interface FilterState {
     average: { min: number; max: number } | null // seconds/km; null = disabled
   }
   heartrate: { min: number; max: number; includeNoHR: boolean } | null // bpm; null = inactive
+  elevationGain: { min: number; max: number } | null // metres; null = inactive
+  sufferScore: { min: number; max: number } | null // Strava suffer score; null = inactive
+  movingTime: { min: number; max: number } | null // seconds; null = inactive
+  elapsedTime: { min: number; max: number } | null // seconds; null = inactive
 }
 
 export type MetricKey =

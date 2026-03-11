@@ -139,6 +139,21 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   // null = not yet seeded; on first render with pace data we compute from median
   const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
 
+  // Restore series axis selections after OAuth redirect
+  useEffect(() => {
+    const y = sessionStorage.getItem('series:yMetric') as YMetric | null
+    const x = sessionStorage.getItem('series:xMetric') as XMetric | null
+    const t = sessionStorage.getItem('series:timeMode') as 'moving' | 'elapsed' | null
+    if (y) setYMetric(y)
+    if (x) setXMetric(x)
+    if (t) setTimeMode(t)
+  }, [])
+
+  // Persist series axis selections to sessionStorage
+  useEffect(() => { sessionStorage.setItem('series:yMetric', yMetric) }, [yMetric])
+  useEffect(() => { sessionStorage.setItem('series:xMetric', xMetric) }, [xMetric])
+  useEffect(() => { sessionStorage.setItem('series:timeMode', timeMode) }, [timeMode])
+
   // Compute median age grade from the current activities whenever athlete / activities change
   const medianAgeGrade = useMemo(() => {
     if (!athlete?.sex || (!athlete?.dateOfBirth && !athlete?.age)) return null

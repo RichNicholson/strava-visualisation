@@ -27,6 +27,10 @@ const noFilter: FilterState = {
   sport: [],
   pace: { average: null },
   heartrate: null,
+  elevationGain: null,
+  sufferScore: null,
+  movingTime: null,
+  elapsedTime: null,
 }
 
 describe('applyFilter', () => {

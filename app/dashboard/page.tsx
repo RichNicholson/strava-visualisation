@@ -8,7 +8,8 @@ const TABLEAU10 = [
   '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ac',
 ]
 import { FilterPanel } from '../../components/filter/FilterPanel'
-import { ScatterPlot } from '../../components/plots/ScatterPlot'
+import { ScatterPlot, DEFAULT_SCATTER_VIEW_STATE } from '../../components/plots/ScatterPlot'
+import type { ScatterViewState } from '../../components/plots/ScatterPlot'
 import { SeriesPlot } from '../../components/plots/SeriesPlot'
 import { RouteMap } from '../../components/plots/RouteMap'
 import { RosterPanel, ROSTER_CAPACITY } from '../../components/roster/RosterPanel'
@@ -27,6 +28,10 @@ const DEFAULT_FILTER: FilterState = {
   sport: ['Run'],
   pace: { average: { min: 3 * 60, max: 10 * 60 } },
   heartrate: null,
+  elevationGain: null,
+  sufferScore: null,
+  movingTime: null,
+  elapsedTime: null,
 }
 
 type PlotMode = 'scatter' | 'table' | 'series' | 'map'
@@ -49,8 +54,31 @@ export default function Dashboard() {
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
   const [roster, setRoster] = useState<Set<number>>(new Set())
   const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
+  // Scatter plot view state — persisted across tab switches
+  const [scatterViewState, setScatterViewState] = useState<ScatterViewState>(DEFAULT_SCATTER_VIEW_STATE)
   // Stable color assignments: activityId -> colorIndex (0-9)
   const [colorAssignments, setColorAssignments] = useState<Map<number, number>>(new Map())
+
+  // Restore UI state after OAuth redirect (sessionStorage survives same-tab navigation)
+  useEffect(() => {
+    const savedMode = sessionStorage.getItem('dash:plotMode') as PlotMode | null
+    if (savedMode && Object.keys(MODE_LABELS).includes(savedMode)) setPlotMode(savedMode)
+    try {
+      const savedScatter = sessionStorage.getItem('dash:scatterView')
+      if (savedScatter) {
+        const parsed = JSON.parse(savedScatter)
+        setScatterViewState((prev) => ({ ...prev, ...parsed, viewDomain: null }))
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  // Persist plot mode and scatter axes to sessionStorage
+  useEffect(() => { sessionStorage.setItem('dash:plotMode', plotMode) }, [plotMode])
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { viewDomain: _vd, ...toSave } = scatterViewState
+    sessionStorage.setItem('dash:scatterView', JSON.stringify(toSave))
+  }, [scatterViewState])
 
   const filteredActivities = useMemo(
     () => applyFilter(allActivities, filter),
@@ -273,6 +301,8 @@ export default function Dashboard() {
               roster={roster}
               onToggleRoster={toggleRoster}
               colorMap={colorMap}
+              viewState={scatterViewState}
+              onViewStateChange={setScatterViewState}
             />
           ) : plotMode === 'table' ? (
             <ActivityTable

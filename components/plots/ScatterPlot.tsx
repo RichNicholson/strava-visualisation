@@ -34,6 +34,23 @@ const METRIC_OPTIONS = (Object.entries(METRIC_LABELS) as [MetricKey, string][]).
 // Y-axis also offers age_grade
 const Y_AXIS_OPTIONS: [MetricKey, string][] = [...METRIC_OPTIONS, ['age_grade', METRIC_LABELS.age_grade]]
 
+export interface ScatterViewState {
+  xAxis: MetricKey
+  yAxis: MetricKey
+  colorMetric: ColorMetric
+  colorScheme: ColorScheme
+  /** null = unset; plot will auto-fit on first render then call onViewStateChange to lock. */
+  viewDomain: { x: [number, number]; y: [number, number] } | null
+}
+
+export const DEFAULT_SCATTER_VIEW_STATE: ScatterViewState = {
+  xAxis: 'distance',
+  yAxis: 'average_pace',
+  colorMetric: 'index',
+  colorScheme: 'Oranges',
+  viewDomain: null,
+}
+
 interface ScatterPlotProps {
   activities: StravaActivity[]
   athlete: Athlete | null
@@ -41,22 +58,20 @@ interface ScatterPlotProps {
   roster?: Set<number>
   onToggleRoster?: (id: number) => void
   colorMap?: Map<number, string>
+  viewState: ScatterViewState
+  onViewStateChange: (state: ScatterViewState) => void
 }
 
-export function ScatterPlot({ activities, athlete, showWMA = true, roster, onToggleRoster, colorMap }: ScatterPlotProps) {
+export function ScatterPlot({ activities, athlete, showWMA = true, roster, onToggleRoster, colorMap, viewState, onViewStateChange }: ScatterPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Stable ref for the toggle callback — keeps it out of the useEffect dep array
   const onToggleRosterRef = useRef(onToggleRoster)
   useEffect(() => { onToggleRosterRef.current = onToggleRoster }, [onToggleRoster])
 
-  const [xAxis, setXAxis] = useState<MetricKey>('distance')
-  const [yAxis, setYAxis] = useState<YAxis>('average_pace')
-  const [colorMetric, setColorMetric] = useState<ColorMetric>('index')
-  const [colorScheme, setColorScheme] = useState<ColorScheme>('Oranges')
-  // viewDomain: stable scale — null triggers a fit from data then locks.
-  // Does NOT auto-update when activities (filter) changes, preventing unwanted rescales.
-  const [viewDomain, setViewDomain] = useState<{ x: [number, number]; y: [number, number] } | null>(null)
+  const { xAxis, yAxis, colorMetric, colorScheme, viewDomain } = viewState
+  const setViewDomain = (d: ScatterViewState['viewDomain']) => onViewStateChange({ ...viewState, viewDomain: d })
+
   const [tooltip, setTooltip] = useState<{ x: number; y: number; activity: StravaActivity } | null>(null)
 
   useEffect(() => {
@@ -220,20 +235,56 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
       })
     }
 
-    // Brush → zoom (distance × pace only)
-    if (isPace && xAxis === 'distance') {
+    // Capture effective domains so single-axis zoom can preserve the other axis
+    const effectiveXDomain = xScale.domain() as [number, number]
+    const effectiveYDomain = yScale.domain() as [number, number]
+
+    // Brush → zoom (all axis combinations; supports axis-constrained zoom)
+    {
       const brushGroup = g.append('g').attr('class', 'brush')
       const brush = d3.brush()
         .extent([[0, 0], [innerW, innerH]])
+        .on('brush', (event) => {
+          if (!event.sourceEvent || !event.selection) return
+          const [[bx0, by0], [bx1, by1]] = event.selection as [[number, number], [number, number]]
+          const dx = Math.abs(bx1 - bx0)
+          const dy = Math.abs(by1 - by0)
+          const selRect = brushGroup.select('.selection')
+          if (dx > 4 * dy) {
+            // X-constrained: stretch selection to full height
+            selRect.attr('y', 0).attr('height', innerH)
+          } else if (dy > 4 * dx) {
+            // Y-constrained: stretch selection to full width
+            selRect.attr('x', 0).attr('width', innerW)
+          }
+          // else: normal rectangular selection — no modification needed
+        })
         .on('end', (event) => {
           if (!event.sourceEvent || !event.selection) return
           const [[px0, py0], [px1, py1]] = event.selection as [[number, number], [number, number]]
+          const dx = Math.abs(px1 - px0)
+          const dy = Math.abs(py1 - py0)
           // newY: always [invert(bottom), invert(top)] so domain direction is preserved
           // for inverted scale (pace): [slow, fast]; for normal: [small, large]
-          setViewDomain({
-            x: [xScale.invert(px0), xScale.invert(px1)],
-            y: [yScale.invert(py1), yScale.invert(py0)],
-          })
+          if (dx > 4 * dy) {
+            // X-only zoom: keep current y domain
+            setViewDomain({
+              x: [xScale.invert(px0), xScale.invert(px1)],
+              y: effectiveYDomain,
+            })
+          } else if (dy > 4 * dx) {
+            // Y-only zoom: keep current x domain
+            setViewDomain({
+              x: effectiveXDomain,
+              y: [yScale.invert(py1), yScale.invert(py0)],
+            })
+          } else {
+            // Both axes
+            setViewDomain({
+              x: [xScale.invert(px0), xScale.invert(px1)],
+              y: [yScale.invert(py1), yScale.invert(py0)],
+            })
+          }
         })
 
       brushGroup.call(brush)
@@ -415,7 +466,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
             <span className="text-xs font-medium text-gray-500 w-4">X</span>
             <select
               value={xAxis}
-              onChange={(e) => { setXAxis(e.target.value as MetricKey); setViewDomain(null) }}
+              onChange={(e) => onViewStateChange({ ...viewState, xAxis: e.target.value as MetricKey, viewDomain: null })}
               className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
             >
               {METRIC_OPTIONS.map(([k, label]) => (
@@ -429,7 +480,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
             <span className="text-xs font-medium text-gray-500 w-4">Y</span>
             <select
               value={yAxis}
-              onChange={(e) => { setYAxis(e.target.value as YAxis); setViewDomain(null) }}
+              onChange={(e) => onViewStateChange({ ...viewState, yAxis: e.target.value as YAxis, viewDomain: null })}
               className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
             >
               {Y_AXIS_OPTIONS.map(([k, label]) => (
@@ -465,7 +516,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           <span className="text-xs font-medium text-gray-500">Color</span>
           <select
             value={colorMetric}
-            onChange={(e) => setColorMetric(e.target.value as ColorMetric)}
+            onChange={(e) => onViewStateChange({ ...viewState, colorMetric: e.target.value as ColorMetric })}
             className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
           >
             <option value="index">Chronological</option>
@@ -475,7 +526,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           </select>
           <select
             value={colorScheme}
-            onChange={(e) => setColorScheme(e.target.value as ColorScheme)}
+            onChange={(e) => onViewStateChange({ ...viewState, colorScheme: e.target.value as ColorScheme })}
             className="text-sm border border-gray-200 rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
           >
             {(Object.keys(COLOR_SCHEMES) as ColorScheme[]).map((scheme) => (
@@ -491,7 +542,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
         className="flex-1 relative min-h-0"
         onDoubleClick={autoScale}
       >
-        <svg ref={svgRef} className="w-full h-full" />
+        <svg ref={svgRef} className="w-full h-full" data-testid="scatter-svg" />
 
         {/* Zoom / scale hint */}
 

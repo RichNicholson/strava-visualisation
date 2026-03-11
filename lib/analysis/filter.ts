@@ -41,6 +41,27 @@ export function applyFilter(activities: StravaActivity[], filter: FilterState): 
       }
     }
 
+    // Elevation gain filter (metres)
+    if (filter.elevationGain) {
+      if (a.total_elevation_gain < filter.elevationGain.min || a.total_elevation_gain > filter.elevationGain.max) return false
+    }
+
+    // Suffer score filter — skip activities without a score
+    if (filter.sufferScore) {
+      if (a.suffer_score == null) return false
+      if (a.suffer_score < filter.sufferScore.min || a.suffer_score > filter.sufferScore.max) return false
+    }
+
+    // Moving time filter (seconds)
+    if (filter.movingTime) {
+      if (a.moving_time < filter.movingTime.min || a.moving_time > filter.movingTime.max) return false
+    }
+
+    // Elapsed time filter (seconds)
+    if (filter.elapsedTime) {
+      if (a.elapsed_time < filter.elapsedTime.min || a.elapsed_time > filter.elapsedTime.max) return false
+    }
+
     return true
   })
 }
@@ -87,4 +108,32 @@ export function getHeartRateBounds(activities: StravaActivity[]): { min: number;
     .map((a) => a.average_heartrate!)
   if (hrs.length === 0) return null
   return { min: Math.floor(Math.min(...hrs)), max: Math.ceil(Math.max(...hrs)) }
+}
+
+/** Returns the min/max total_elevation_gain (metres) across all activities. */
+export function getElevationGainBounds(activities: StravaActivity[]): { min: number; max: number } | null {
+  if (activities.length === 0) return null
+  const vals = activities.map((a) => a.total_elevation_gain)
+  return { min: Math.floor(Math.min(...vals)), max: Math.ceil(Math.max(...vals)) }
+}
+
+/** Returns the min/max suffer_score across activities that have one, or null if none do. */
+export function getSufferScoreBounds(activities: StravaActivity[]): { min: number; max: number } | null {
+  const vals = activities.filter((a) => a.suffer_score != null).map((a) => a.suffer_score!)
+  if (vals.length === 0) return null
+  return { min: Math.floor(Math.min(...vals)), max: Math.ceil(Math.max(...vals)) }
+}
+
+/** Returns the min/max moving_time (seconds) across all activities. */
+export function getMovingTimeBounds(activities: StravaActivity[]): { min: number; max: number } | null {
+  if (activities.length === 0) return null
+  const vals = activities.map((a) => a.moving_time)
+  return { min: Math.floor(Math.min(...vals)), max: Math.ceil(Math.max(...vals)) }
+}
+
+/** Returns the min/max elapsed_time (seconds) across all activities. */
+export function getElapsedTimeBounds(activities: StravaActivity[]): { min: number; max: number } | null {
+  if (activities.length === 0) return null
+  const vals = activities.map((a) => a.elapsed_time)
+  return { min: Math.floor(Math.min(...vals)), max: Math.ceil(Math.max(...vals)) }
 }
