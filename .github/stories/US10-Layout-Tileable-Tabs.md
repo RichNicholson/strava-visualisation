@@ -130,3 +130,7 @@ interface Workbook {
 - Workbooks → `localStorage` key `workbooks`
 - Active layout config (unsaved) → `sessionStorage` (survives OAuth redirect)
 - Do **not** put layout/workbook state in Dexie — it is UI preference, not activity data
+
+## Completed
+
+**2026-03-11** — Implemented Tab/Split/Grid layout manager. `LayoutConfig` type added to `lib/strava/types.ts`; dashboard refactored to replace single `plotMode` state with `layoutConfig` (mode + per-slot `viewType`). Tab mode is identical to the previous single-panel UX; Split shows 2 side-by-side panels; Grid shows 2×2 panels. Each panel in Split/Grid has its own view-type tab strip. Layout config persisted to `localStorage`. All 9 new E2E tests pass; 22 pre-existing E2E tests unchanged (4 pre-existing failures unrelated to this story); 33 unit tests pass.

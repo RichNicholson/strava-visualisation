@@ -18,7 +18,8 @@ import { useAllActivities, useAthlete } from '../../hooks/useActivities'
 import { useStravaSync } from '../../hooks/useStravaSync'
 import { useStreams, useStream } from '../../hooks/useStreams'
 import { applyFilter } from '../../lib/analysis/filter'
-import type { FilterState, StravaActivity } from '../../lib/strava/types'
+import type { FilterState, StravaActivity, ViewType, LayoutMode, WorkspaceState, WorkspaceTab, Channel } from '../../lib/strava/types'
+import { DEFAULT_WORKSPACE, DEFAULT_CHANNEL, defaultSlot } from '../../lib/strava/types'
 import { SettingsPanel } from './SettingsPanel'
 import { SyncDialog } from '../../components/ui/SyncDialog'
 
@@ -34,21 +35,21 @@ const DEFAULT_FILTER: FilterState = {
   elapsedTime: null,
 }
 
-type PlotMode = 'scatter' | 'table' | 'series' | 'map'
-
-const MODE_LABELS: Record<PlotMode, string> = {
+const VIEW_LABELS: Record<ViewType, string> = {
   scatter: 'Scatter',
   table: 'Table',
   series: 'Series',
   map: 'Map',
 }
 
+const LAYOUT_LABELS = { single: 'Single', double: 'Double', quad: 'Quad' } as const
+
 export default function Dashboard() {
   const allActivities = useAllActivities()
   const athlete = useAthlete()
   const { progress, isSyncing, startSync, clearProgress } = useStravaSync()
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
-  const [plotMode, setPlotMode] = useState<PlotMode>('scatter')
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(DEFAULT_WORKSPACE)
   const [showSettings, setShowSettings] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
@@ -59,10 +60,12 @@ export default function Dashboard() {
   // Stable color assignments: activityId -> colorIndex (0-9)
   const [colorAssignments, setColorAssignments] = useState<Map<number, number>>(new Map())
 
-  // Restore UI state after OAuth redirect (sessionStorage survives same-tab navigation)
+  // Restore UI state after OAuth redirect / page reload
   useEffect(() => {
-    const savedMode = sessionStorage.getItem('dash:plotMode') as PlotMode | null
-    if (savedMode && Object.keys(MODE_LABELS).includes(savedMode)) setPlotMode(savedMode)
+    try {
+      const saved = localStorage.getItem('dash:workspaceState')
+      if (saved) setWorkspaceState(JSON.parse(saved))
+    } catch { /* ignore */ }
     try {
       const savedScatter = sessionStorage.getItem('dash:scatterView')
       if (savedScatter) {
@@ -72,13 +75,17 @@ export default function Dashboard() {
     } catch { /* ignore */ }
   }, [])
 
-  // Persist plot mode and scatter axes to sessionStorage
-  useEffect(() => { sessionStorage.setItem('dash:plotMode', plotMode) }, [plotMode])
+  // Persist workspace state to localStorage (survives page close/reopen)
+  useEffect(() => { localStorage.setItem('dash:workspaceState', JSON.stringify(workspaceState)) }, [workspaceState])
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { viewDomain: _vd, ...toSave } = scatterViewState
     sessionStorage.setItem('dash:scatterView', JSON.stringify(toSave))
   }, [scatterViewState])
+
+  // Derived: active workspace tab and its layout config (re-computed each render)
+  const activeTab = workspaceState.tabs.find((t) => t.id === workspaceState.activeTabId) ?? workspaceState.tabs[0]
+  const layoutConfig = activeTab.layoutConfig
 
   const filteredActivities = useMemo(
     () => applyFilter(allActivities, filter),
@@ -147,6 +154,85 @@ export default function Dashboard() {
     })
   }, [])
 
+  // Switch the layout mode of the active workspace tab, carrying over as many slots as possible
+  const switchLayoutMode = useCallback((mode: LayoutMode) => {
+    setWorkspaceState((prev) => {
+      const tabs = prev.tabs.map((t) => {
+        if (t.id !== prev.activeTabId) return t
+        const existing = t.layoutConfig.slots
+        const defaults: ViewType[] = ['scatter', 'series', 'map', 'table']
+        const count = mode === 'single' ? 1 : mode === 'double' ? 2 : 4
+        const slots = Array.from({ length: count }, (_, i) =>
+          existing[i] ?? defaultSlot(defaults[i])
+        )
+        return { ...t, layoutConfig: { mode, slots } }
+      })
+      return { ...prev, tabs }
+    })
+  }, [])
+
+  // Change the view type shown in a specific slot of the active workspace tab
+  const setSlotViewType = useCallback((slotIndex: number, viewType: ViewType) => {
+    setWorkspaceState((prev) => {
+      const tabs = prev.tabs.map((t) => {
+        if (t.id !== prev.activeTabId) return t
+        const slots = [...t.layoutConfig.slots]
+        const existing = slots[slotIndex]
+        // Initialise channels when switching to series view
+        const channels = viewType === 'series' && (!existing.channels || existing.channels.length === 0)
+          ? [{ ...DEFAULT_CHANNEL }]
+          : existing.channels
+        slots[slotIndex] = { ...existing, viewType, channels }
+        return { ...t, layoutConfig: { ...t.layoutConfig, slots } }
+      })
+      return { ...prev, tabs }
+    })
+  }, [])
+
+  // Update channels for a specific slot of the active workspace tab
+  const setSlotChannels = useCallback((slotIndex: number, channels: Channel[]) => {
+    setWorkspaceState((prev) => {
+      const tabs = prev.tabs.map((t) => {
+        if (t.id !== prev.activeTabId) return t
+        const slots = [...t.layoutConfig.slots]
+        slots[slotIndex] = { ...slots[slotIndex], channels }
+        return { ...t, layoutConfig: { ...t.layoutConfig, slots } }
+      })
+      return { ...prev, tabs }
+    })
+  }, [])
+
+  // Add a new workspace tab
+  const addWorkspaceTab = useCallback(() => {
+    setWorkspaceState((prev) => {
+      const newId = `tab-${Date.now()}`
+      const newTab: WorkspaceTab = {
+        id: newId,
+        name: `Tab ${prev.tabs.length + 1}`,
+        layoutConfig: { mode: 'single', slots: [defaultSlot('scatter')] },
+      }
+      return { tabs: [...prev.tabs, newTab], activeTabId: newId }
+    })
+  }, [])
+
+  // Remove a workspace tab (cannot remove the last one)
+  const removeWorkspaceTab = useCallback((id: string) => {
+    setWorkspaceState((prev) => {
+      if (prev.tabs.length <= 1) return prev
+      const idx = prev.tabs.findIndex((t) => t.id === id)
+      const tabs = prev.tabs.filter((t) => t.id !== id)
+      const activeTabId = prev.activeTabId === id
+        ? (tabs[idx - 1] ?? tabs[0]).id
+        : prev.activeTabId
+      return { tabs, activeTabId }
+    })
+  }, [])
+
+  // Switch to a different workspace tab
+  const setActiveWorkspaceTab = useCallback((id: string) => {
+    setWorkspaceState((prev) => ({ ...prev, activeTabId: id }))
+  }, [])
+
   // Keep selectedActivityId valid whenever the roster changes, or when first entering
   // map/series mode. The selection is shared between map (which activity to display)
   // and series (which trace to highlight as baseline).
@@ -157,16 +243,20 @@ export default function Dashboard() {
     )
   }, [rosterActivities])
 
+  // Derive which view types are currently visible (across all slots)
+  const isSeriesVisible = layoutConfig.slots.some((s) => s.viewType === 'series')
+  const isMapVisible = layoutConfig.slots.some((s) => s.viewType === 'map')
+
   // Fetch streams for series mode — uses roster if non-empty
   const streamActivityIds = useMemo(
-    () => (plotMode === 'series' && roster.size > 0 ? rosterActivities.map((a) => a.id) : []),
-    [rosterActivities, roster.size, plotMode]
+    () => (isSeriesVisible && roster.size > 0 ? rosterActivities.map((a) => a.id) : []),
+    [rosterActivities, roster.size, isSeriesVisible]
   )
   const { streams, loading: streamsLoading, error: streamsError } = useStreams(streamActivityIds)
 
   // Fetch single stream for map mode
   const { stream: mapStream, loading: mapStreamLoading, error: mapStreamError } = useStream(
-    plotMode === 'map' && roster.size > 0 ? selectedActivityId : null
+    isMapVisible && roster.size > 0 ? selectedActivityId : null
   )
 
   const mapSource = roster.size > 0 ? rosterActivities : []
@@ -174,30 +264,190 @@ export default function Dashboard() {
 
   const showSyncDialog = isSyncing || (progress !== null && progress.phase !== 'error')
 
+  // Render the body of a single panel slot (no outer shell, fills whatever container it is in)
+  const renderPanelBody = (viewType: ViewType, slotIndex: number) => {
+    if (viewType === 'scatter') {
+      return (
+        <ScatterPlot
+          activities={filteredActivities}
+          athlete={athlete ?? null}
+          showWMA={showWMA}
+          roster={roster}
+          onToggleRoster={toggleRoster}
+          colorMap={colorMap}
+          viewState={scatterViewState}
+          onViewStateChange={setScatterViewState}
+        />
+      )
+    }
+    if (viewType === 'table') {
+      return (
+        <ActivityTable
+          activities={filteredActivities}
+          roster={roster}
+          onToggleRoster={toggleRoster}
+        />
+      )
+    }
+    if (viewType === 'series') {
+      if (roster.size === 0) {
+        return (
+          <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
+            Add runs to the roster to compare them here.
+            <br />
+            <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
+          </div>
+        )
+      }
+      if (streamsError) {
+        return (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-sm text-red-500">
+              {streamsError === 'RATE_LIMITED'
+                ? 'Strava rate limit reached — wait a few minutes and try again'
+                : streamsError === 'UNAUTHORIZED'
+                ? 'Session expired — reconnect with Strava'
+                : `Failed to load streams: ${streamsError}`}
+            </p>
+          </div>
+        )
+      }
+      return (
+        <SeriesPlot
+          activities={rosterActivities.filter((a) => !hiddenRoster.has(a.id))}
+          streams={streams}
+          loading={streamsLoading}
+          colorMap={colorMap}
+          athlete={athlete ?? null}
+          baselineId={selectedActivityId}
+          channels={layoutConfig.slots[slotIndex]?.channels}
+          onChannelsChange={(ch) => setSlotChannels(slotIndex, ch)}
+        />
+      )
+    }
+    if (viewType === 'map') {
+      if (roster.size === 0) {
+        return (
+          <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
+            Add runs to the roster to view them on the map.
+            <br />
+            <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
+          </div>
+        )
+      }
+      if (mapStreamError) {
+        return (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-sm text-red-500">
+              {mapStreamError === 'RATE_LIMITED'
+                ? 'Strava rate limit reached — wait a few minutes and try again'
+                : mapStreamError === 'UNAUTHORIZED'
+                ? 'Session expired — reconnect with Strava'
+                : `Failed to load route: ${mapStreamError}`}
+            </p>
+          </div>
+        )
+      }
+      if (selectedActivity) {
+        return (
+          <RouteMap
+            activity={selectedActivity}
+            stream={mapStream}
+            loading={mapStreamLoading}
+          />
+        )
+      }
+      return null
+    }
+    return null
+  }
+
+  // Show scatter WMA toggle when any visible slot is a scatter view
+  const isScatterVisible = layoutConfig.slots.some((s) => s.viewType === 'scatter')
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Top bar */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-4 flex-shrink-0">
         <h1 className="font-bold text-orange-500 text-lg">StravaViz</h1>
 
-        {/* Plot mode toggle */}
+        {/* Workspace tabs */}
+        <div className="flex items-center gap-0.5">
+          {workspaceState.tabs.map((tab) => (
+            <div key={tab.id} className="flex items-center">
+              <button
+                onClick={() => setActiveWorkspaceTab(tab.id)}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors border ${
+                  tab.id === workspaceState.activeTabId
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                } ${
+                  workspaceState.tabs.length === 1 ? 'rounded-lg' : 'rounded-l-lg'
+                }`}
+              >
+                {tab.name}
+              </button>
+              {workspaceState.tabs.length > 1 && (
+                <button
+                  onClick={() => removeWorkspaceTab(tab.id)}
+                  className={`px-1.5 py-1.5 text-xs rounded-r-lg border-y border-r transition-colors ${
+                    tab.id === workspaceState.activeTabId
+                      ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'
+                      : 'text-gray-400 border-gray-200 hover:bg-gray-50 hover:text-red-500'
+                  }`}
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={addWorkspaceTab}
+            className="px-2 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Add new tab"
+          >
+            +
+          </button>
+        </div>
+
+        {/* Layout mode switcher: Single | Double | Quad */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {(['scatter', 'table', 'series', 'map'] as PlotMode[]).map((mode) => (
+          {(['single', 'double', 'quad'] as const).map((mode) => (
             <button
               key={mode}
-              onClick={() => setPlotMode(mode)}
+              onClick={() => switchLayoutMode(mode)}
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                plotMode === mode
+                layoutConfig.mode === mode
                   ? 'bg-orange-500 text-white'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {MODE_LABELS[mode]}
+              {LAYOUT_LABELS[mode]}
             </button>
           ))}
         </div>
 
-        {plotMode === 'scatter' && (
+        {/* In Single mode: view type selector (identical to the original tab strip) */}
+        {layoutConfig.mode === 'single' && (
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {(['scatter', 'table', 'series', 'map'] as ViewType[]).map((viewType) => (
+              <button
+                key={viewType}
+                onClick={() => setSlotViewType(0, viewType)}
+                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                  layoutConfig.slots[0].viewType === viewType
+                    ? 'bg-orange-500 text-white'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {VIEW_LABELS[viewType]}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isScatterVisible && (
           <button
             onClick={() => setShowWMA((v) => !v)}
             className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
@@ -279,90 +529,62 @@ export default function Dashboard() {
         </aside>
 
         {/* Plot area */}
-        <main className="flex-1 min-w-0">
-          {allActivities.length === 0 && !isSyncing ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center space-y-4">
-                <p className="text-gray-500">No activities yet. Click &quot;Sync Activities&quot; to load your Strava data.</p>
-                <button
-                  onClick={(e) => startSync(e.shiftKey)}
-                  className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors"
-                  title="Sync activities from Strava (Shift+Click for full resync)"
-                >
-                  Sync from Strava
-                </button>
-              </div>
+        {allActivities.length === 0 && !isSyncing ? (
+          <main className="flex-1 min-w-0 flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <p className="text-gray-500">No activities yet. Click &quot;Sync Activities&quot; to load your Strava data.</p>
+              <button
+                onClick={(e) => startSync(e.shiftKey)}
+                className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors"
+                title="Sync activities from Strava (Shift+Click for full resync)"
+              >
+                Sync from Strava
+              </button>
             </div>
-          ) : plotMode === 'scatter' ? (
-            <ScatterPlot
-              activities={filteredActivities}
-              athlete={athlete ?? null}
-              showWMA={showWMA}
-              roster={roster}
-              onToggleRoster={toggleRoster}
-              colorMap={colorMap}
-              viewState={scatterViewState}
-              onViewStateChange={setScatterViewState}
-            />
-          ) : plotMode === 'table' ? (
-            <ActivityTable
-              activities={filteredActivities}
-              roster={roster}
-              onToggleRoster={toggleRoster}
-            />
-          ) : plotMode === 'series' ? (
-            roster.size === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
-                Add runs to the roster to compare them here.
-                <br />
-                <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
+          </main>
+        ) : layoutConfig.mode === 'single' ? (
+          /* ── Single mode: one panel, no panel chrome ─────────────────── */
+          <main className="flex-1 min-w-0">
+            {renderPanelBody(layoutConfig.slots[0].viewType, 0)}
+          </main>
+        ) : (
+          /* ── Double / Quad mode: multiple panels, each with its own tab strip ── */
+          <main
+            className={`flex-1 min-w-0 grid gap-2 p-2 ${
+              layoutConfig.mode === 'double'
+                ? 'grid-cols-2'
+                : 'grid-cols-2 grid-rows-2'
+            }`}
+          >
+            {layoutConfig.slots.map((slot, slotIndex) => (
+              <div
+                key={slotIndex}
+                className="flex flex-col min-h-0 bg-white rounded-lg border border-gray-200 overflow-hidden"
+              >
+                {/* Per-panel view type tab strip */}
+                <div className="flex border-b border-gray-100 flex-shrink-0">
+                  {(['scatter', 'table', 'series', 'map'] as ViewType[]).map((viewType) => (
+                    <button
+                      key={viewType}
+                      onClick={() => setSlotViewType(slotIndex, viewType)}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors border-b-2 ${
+                        slot.viewType === viewType
+                          ? 'border-orange-500 text-orange-600 bg-orange-50'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {VIEW_LABELS[viewType]}
+                    </button>
+                  ))}
+                </div>
+                {/* Panel body */}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {renderPanelBody(slot.viewType, slotIndex)}
+                </div>
               </div>
-            ) : streamsError ? (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-sm text-red-500">
-                  {streamsError === 'RATE_LIMITED'
-                    ? 'Strava rate limit reached — wait a few minutes and try again'
-                    : streamsError === 'UNAUTHORIZED'
-                    ? 'Session expired — reconnect with Strava'
-                    : `Failed to load streams: ${streamsError}`}
-                </p>
-              </div>
-            ) : (
-              <SeriesPlot
-                activities={rosterActivities.filter((a) => !hiddenRoster.has(a.id))}
-                streams={streams}
-                loading={streamsLoading}
-                colorMap={colorMap}
-                athlete={athlete ?? null}
-                baselineId={selectedActivityId}
-              />
-            )
-          ) : plotMode === 'map' ? (
-            roster.size === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-8">
-                Add runs to the roster to view them on the map.
-                <br />
-                <span className="text-xs mt-1">Use the Scatter or Table view to select runs.</span>
-              </div>
-            ) : mapStreamError ? (
-              <div className="h-full flex items-center justify-center">
-                <p className="text-sm text-red-500">
-                  {mapStreamError === 'RATE_LIMITED'
-                    ? 'Strava rate limit reached — wait a few minutes and try again'
-                    : mapStreamError === 'UNAUTHORIZED'
-                    ? 'Session expired — reconnect with Strava'
-                    : `Failed to load route: ${mapStreamError}`}
-                </p>
-              </div>
-            ) : selectedActivity ? (
-              <RouteMap
-                activity={selectedActivity}
-                stream={mapStream}
-                loading={mapStreamLoading}
-              />
-            ) : null
-          ) : null}
-        </main>
+            ))}
+          </main>
+        )}
       </div>
 
       {/* Settings modal */}

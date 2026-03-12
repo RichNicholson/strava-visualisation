@@ -31,7 +31,7 @@
 | ✅ 22 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1 (done); significant FilterPanel refactor; more quality-of-life than race analysis |
 | 23 | US24-Deployment-Guidance.md | Deployment guidance spike | Medium | Low | Research-only output; no code changes but important for taking the app live |
 | 24 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
-| 25 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land. Enables full value of US18 (crosshair + map link) |
+| ✅ 25 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land. Enables full value of US18 (crosshair + map link) |
 
 ## Notes
 

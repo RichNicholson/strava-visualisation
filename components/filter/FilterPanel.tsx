@@ -192,6 +192,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
     return new Date(filter.dateRange.from).toDateString() === expected.toDateString()
   }
 
+  const isAllDistanceActive = filter.distanceRange === null
   const isTenKPresetActive = filter.distanceRange?.min === 0 && filter.distanceRange?.max === TEN_K_DIST
   const isMarathonPresetActive = filter.distanceRange?.min === 0 && filter.distanceRange?.max === MARATHON_DIST
 
@@ -332,6 +333,16 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
               }`}
             >
               &lt; Marathon
+            </button>
+            <button
+              onClick={() => onChange({ ...filter, distanceRange: null })}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                isAllDistanceActive
+                  ? 'bg-orange-500 text-white border-orange-500'
+                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+              }`}
+            >
+              All
             </button>
           </div>
           <RangeSlider

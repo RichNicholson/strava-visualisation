@@ -27,6 +27,10 @@ export function RouteMap({ activity, stream, loading }: RouteMapProps) {
     import('leaflet').then((L) => {
       if (cancelled || !containerRef.current) return
 
+      // Prevent Leaflet's default icon resolver from producing webpack:/// paths
+      // that Chrome DevTools can't handle ("Unable to add filesystem: <illegal path>")
+      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
+
       const map = L.map(containerRef.current)
       mapRef.current = map
 

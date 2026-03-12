@@ -86,6 +86,86 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   age_grade: 'Age Grade (%)',
 }
 
+// ── Layout types ─────────────────────────────────────────────────────────────
+
+export type ViewType = 'scatter' | 'table' | 'series' | 'map'
+export type LayoutMode = 'single' | 'double' | 'quad'
+
+/** All metrics that can be plotted on the Series y-axis. */
+export type SeriesMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence'
+
+/**
+ * One metric channel rendered in a Series slot.
+ *
+ * `yTop` and `yBottom` are percentages (0–100) of the plot height from the top edge.
+ * Non-overlapping bands render as stacked swimlanes; fully-overlapping bands render as
+ * a dual-axis overlay (secondary channels are drawn dashed at 0.7 opacity).
+ */
+export interface Channel {
+  metric: SeriesMetric
+  side: 'left' | 'right'    // which side the y-axis is drawn on
+  yTop: number               // 0–100
+  yBottom: number            // 0–100
+  scaleMode: 'auto' | '1min' | '2min' | 'fixed'
+  scaleMin?: number | null   // data-layer units; only active when scaleMode === 'fixed'
+  scaleMax?: number | null
+  colorIndex?: number        // stable index into CHANNEL_PALETTE; assigned on creation
+}
+
+export const DEFAULT_CHANNEL: Channel = {
+  metric: 'cumulative',
+  side: 'left',
+  yTop: 0,
+  yBottom: 100,
+  scaleMode: 'auto',
+  colorIndex: 0,
+}
+
+/** Configuration for a single panel slot in the dashboard layout. */
+export interface SlotConfig {
+  viewType: ViewType
+  channels: Channel[]  // non-empty when viewType === 'series'
+}
+
+/**
+ * Layout configuration for one workspace tab.
+ * - single: 1 slot  — top bar buttons select the view (identical to legacy behaviour)
+ * - double: 2 slots — each panel has its own view-type tab strip
+ * - quad:   4 slots — 2×2 grid, each panel independently tabbed
+ */
+export interface LayoutConfig {
+  mode: LayoutMode
+  slots: SlotConfig[]
+}
+
+/** A named workspace tab, each with its own independent layout configuration. */
+export interface WorkspaceTab {
+  id: string
+  name: string
+  layoutConfig: LayoutConfig
+}
+
+/** Full workspace state — multiple named tabs, each with an independent layout. */
+export interface WorkspaceState {
+  tabs: WorkspaceTab[]
+  activeTabId: string
+}
+
+export const DEFAULT_WORKSPACE: WorkspaceState = {
+  tabs: [{ id: 'tab-1', name: 'Tab 1', layoutConfig: { mode: 'single', slots: [{ viewType: 'scatter', channels: [] }] } }],
+  activeTabId: 'tab-1',
+}
+
+/** Return a default SlotConfig for a given viewType. */
+export function defaultSlot(viewType: ViewType): SlotConfig {
+  return {
+    viewType,
+    channels: viewType === 'series' ? [{ ...DEFAULT_CHANNEL }] : [],
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function getMetricValue(activity: StravaActivity, metric: MetricKey): number {
   switch (metric) {
     case 'start_date':
