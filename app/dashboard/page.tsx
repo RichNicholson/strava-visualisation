@@ -59,6 +59,8 @@ export default function Dashboard() {
   const [scatterViewState, setScatterViewState] = useState<ScatterViewState>(DEFAULT_SCATTER_VIEW_STATE)
   // Stable color assignments: activityId -> colorIndex (0-9)
   const [colorAssignments, setColorAssignments] = useState<Map<number, number>>(new Map())
+  // Series crosshair hover — shared between SeriesPlot and RouteMap
+  const [hoveredSeriesPoint, setHoveredSeriesPoint] = useState<{ activityId: number; streamIndex: number } | null>(null)
 
   // Restore UI state after OAuth redirect / page reload
   useEffect(() => {
@@ -321,6 +323,9 @@ export default function Dashboard() {
           baselineId={baselineActivityId}
           channels={layoutConfig.slots[slotIndex]?.channels}
           onChannelsChange={(ch) => setSlotChannels(slotIndex, ch)}
+          onHoverIndex={(activityId, streamIndex) =>
+            setHoveredSeriesPoint(activityId != null && streamIndex != null ? { activityId, streamIndex } : null)
+          }
         />
       )
     }
@@ -354,6 +359,7 @@ export default function Dashboard() {
             stream={mapStream}
             loading={mapStreamLoading}
             color={mapActivityId != null ? colorMap.get(mapActivityId) : undefined}
+            hoveredStreamIndex={hoveredSeriesPoint?.activityId === mapActivityId ? hoveredSeriesPoint.streamIndex : undefined}
           />
         )
       }

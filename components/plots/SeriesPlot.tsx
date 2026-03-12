@@ -21,6 +21,8 @@ interface SeriesPlotProps {
   /** When provided, switches to multi-channel rendering instead of the single-metric dropdown. */
   channels?: Channel[]
   onChannelsChange?: (channels: Channel[]) => void
+  /** Fired with (activityId, streamIndex) on crosshair hover; (null, null) on leave. */
+  onHoverIndex?: (activityId: number | null, streamIndex: number | null) => void
 }
 
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
@@ -183,13 +185,16 @@ function orderChannelsForStack(channels: Channel[]): Channel[] {
   ]
 }
 
-export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange }: SeriesPlotProps) {
+export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange, onHoverIndex }: SeriesPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const dragStateRef = useRef({ isDragging: false, distanceMetres: 0 })
   const yScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
   const xScaleRef = useRef<d3.ScaleLinear<number, number> | null>(null)
+  // Keep latest onHoverIndex in a ref so the D3 effect closure always calls the current version
+  const onHoverIndexRef = useRef(onHoverIndex)
+  useEffect(() => { onHoverIndexRef.current = onHoverIndex }, [onHoverIndex])
   const [yMetric, setYMetric] = useState<YMetric>('cumulative')
   const [xMetric, setXMetric] = useState<XMetric>('distance')
   const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
@@ -1344,6 +1349,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
     // Clipped group for all series lines and WMA contour — prevents overflow past axes
     const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
 
+    // Overlay group for crosshair — rendered on top, not clipped, pointer-events disabled
+    const crosshairGroup = g.append('g').attr('class', 'crosshair-overlay').style('pointer-events', 'none')
+
     series.forEach((s, i) => {
       const color = colorMap?.get(s.id) ?? colorScale(String(i))
       const isBaseline = baselineId != null && s.id === baselineId
@@ -1372,10 +1380,63 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           }
         })
         .on('mousemove', function (event) {
+          const [mx, my] = d3.pointer(event, containerRef.current!)
           if (tooltip) {
-            const [mx, my] = d3.pointer(event, containerRef.current!)
             tooltip.style.left = `${mx + 14}px`
             tooltip.style.top = `${my - 10}px`
+          }
+          // ── Crosshair ───────────────────────────────────────────────────
+          const plotX = mx - MARGIN.left
+          const xDataVal = xScale.invert(plotX)
+          const clampedX = Math.max(0, Math.min(innerW, plotX))
+
+          // Find closest stream index for map link
+          const stream = streams.get(s.id)
+          const xArr = xMetric === 'distance' ? stream?.distance : stream?.time
+          if (stream && xArr) {
+            let closestIdx = 0, minDiff = Infinity
+            for (let ii = 0; ii < xArr.length; ii++) {
+              const diff = Math.abs((xArr[ii] ?? 0) - xDataVal)
+              if (diff < minDiff) { minDiff = diff; closestIdx = ii }
+            }
+            onHoverIndexRef.current?.(s.id, closestIdx)
+          }
+
+          crosshairGroup.selectAll('*').remove()
+          // Vertical dashed line
+          crosshairGroup.append('line')
+            .attr('x1', clampedX).attr('x2', clampedX)
+            .attr('y1', 0).attr('y2', innerH)
+            .attr('stroke', '#9ca3af').attr('stroke-dasharray', '3,3').attr('stroke-width', 1)
+
+          if (s.points.length > 0) {
+            const closestPt = s.points.reduce((best, p) =>
+              Math.abs(p.x - xDataVal) < Math.abs(best.x - xDataVal) ? p : best
+            )
+            const dotY = yScale(closestPt.y)
+            // Dot on the hovered line
+            crosshairGroup.append('circle')
+              .attr('cx', clampedX).attr('cy', dotY)
+              .attr('r', 4).attr('fill', color)
+              .attr('stroke', 'white').attr('stroke-width', 1.5)
+            // Label: x · y
+            const xFmt = xMetric === 'distance'
+              ? `${(xDataVal / 1000).toFixed(2)} km`
+              : fmtTime(xDataVal)
+            const yFmt = isPace
+              ? `${Math.floor(closestPt.y / 60)}:${String(Math.round(closestPt.y % 60)).padStart(2, '0')} /km`
+              : yMetric === 'heartrate' ? `${Math.round(closestPt.y)} bpm`
+              : yMetric === 'elevation' ? `${Math.round(closestPt.y)} m`
+              : yMetric === 'cadence'   ? `${Math.round(closestPt.y)} spm`
+              : `${closestPt.y.toFixed(1)}`
+            const labelAnchor = clampedX > innerW * 0.7 ? 'end' : 'start'
+            const labelX = clampedX > innerW * 0.7 ? clampedX - 6 : clampedX + 6
+            const labelY = dotY > innerH * 0.15 ? dotY - 8 : dotY + 16
+            crosshairGroup.append('text')
+              .attr('x', labelX).attr('y', labelY)
+              .attr('text-anchor', labelAnchor)
+              .attr('font-size', '11px').attr('fill', '#374151').attr('font-weight', '500')
+              .text(`${xFmt} · ${yFmt}`)
           }
         })
         .on('mouseleave', function () {
@@ -1386,6 +1447,8 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           g.selectAll<SVGPathElement, unknown>('path.series-line:not([data-baseline="true"])')
             .attr('opacity', hasBaseline ? 0.35 : 0.8)
             .attr('stroke-width', 1.5)
+          crosshairGroup.selectAll('*').remove()
+          onHoverIndexRef.current?.(null, null)
           if (tooltip) tooltip.style.display = 'none'
         })
 
