@@ -5,6 +5,7 @@ import * as d3 from 'd3'
 import type { StravaActivity, Athlete, Channel, SeriesMetric } from '../../lib/strava/types'
 import type { ActivityStream } from '../../lib/strava/types'
 import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
+import { computeDeltaSeries } from '../../lib/analysis/timeDelta'
 
 // Keep YMetric as a local alias for SeriesMetric so all existing references continue to work
 type YMetric = SeriesMetric
@@ -184,6 +185,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
   const [yViewDomain, setYViewDomain] = useState<[number, number] | null>(null)
   const [yScaleMode, setYScaleMode] = useState<'auto' | '1min' | '2min'>('auto')
+  const [isDeltaMode, setIsDeltaMode] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
   // null = not yet seeded; on first render with pace data we compute from median
   const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
@@ -202,15 +204,18 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     const y = sessionStorage.getItem('series:yMetric') as YMetric | null
     const x = sessionStorage.getItem('series:xMetric') as XMetric | null
     const t = sessionStorage.getItem('series:timeMode') as 'moving' | 'elapsed' | null
+    const delta = sessionStorage.getItem('series:isDeltaMode')
     if (y) setYMetric(y)
     if (x) setXMetric(x)
     if (t) setTimeMode(t)
+    if (delta) setIsDeltaMode(delta === 'true')
   }, [])
 
   // Persist series axis selections to sessionStorage
   useEffect(() => { sessionStorage.setItem('series:yMetric', yMetric) }, [yMetric])
   useEffect(() => { sessionStorage.setItem('series:xMetric', xMetric) }, [xMetric])
   useEffect(() => { sessionStorage.setItem('series:timeMode', timeMode) }, [timeMode])
+  useEffect(() => { sessionStorage.setItem('series:isDeltaMode', String(isDeltaMode)) }, [isDeltaMode])
 
   // Compute median age grade from the current activities whenever athlete / activities change
   const medianAgeGrade = useMemo(() => {
@@ -238,7 +243,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   // a previous metric would otherwise produce completely wrong scales.
   useEffect(() => {
     setYViewDomain(null)
-  }, [yMetric, xMetric, timeMode])
+  }, [yMetric, xMetric, timeMode, isDeltaMode])
 
   // Hide editing panel when channels array changes
   useEffect(() => { setEditingChannelIdx(null) }, [channels])
@@ -252,12 +257,215 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
 
-    if (activities.length === 0 || streams.size === 0) return
+    if (activities.length === 0) return
+    // In delta mode we still want to render (even if streams=0) to show the baseline prompt
+    if (!isDeltaMode && streams.size === 0) return
 
     const container = containerRef.current
     const width = container.clientWidth
     const height = container.clientHeight
     svg.attr('width', width).attr('height', height)
+
+    // ── Helper: build moving-time or elapsed-time array from a stream ──────
+    function getEffectiveTime(stream: ActivityStream): number[] | undefined {
+      if (!stream.time) return undefined
+      return timeMode === 'moving'
+        ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
+        : stream.time
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Delta rendering path — runs before multi-channel to honour isDeltaMode
+    // regardless of the current channel configuration
+    // ═══════════════════════════════════════════════════════════════════════
+    if (isDeltaMode) {
+      const innerW = width - MARGIN.left - MARGIN.right
+      const innerH = height - MARGIN.top - MARGIN.bottom
+
+      svg.append('defs')
+        .append('clipPath').attr('id', 'series-clip')
+        .append('rect').attr('width', innerW).attr('height', innerH)
+
+      const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
+
+      const baselineStream = baselineId != null ? streams.get(baselineId) : undefined
+
+      if (!baselineStream || !baselineId) {
+        // Prompt — no baseline designated yet
+        g.append('text')
+          .attr('x', innerW / 2).attr('y', innerH / 2)
+          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .text('Δ delta mode — select a baseline in the roster ★')
+        return
+      }
+
+      // Build baseline arrays
+      let baselineXArr: number[]
+      let baselineYArr: number[]
+      if (xMetric === 'distance') {
+        baselineXArr = baselineStream.distance ?? []
+        baselineYArr = getEffectiveTime(baselineStream) ?? []
+      } else {
+        baselineXArr = getEffectiveTime(baselineStream) ?? []
+        baselineYArr = baselineStream.distance ?? []
+      }
+
+      if (baselineXArr.length < 2) {
+        g.append('text')
+          .attr('x', innerW / 2).attr('y', innerH / 2)
+          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .text('Baseline stream has insufficient data')
+        return
+      }
+
+      // Build delta series for each non-baseline activity
+      const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
+      const tooltip = tooltipRef.current
+
+      const deltaSeriesData: { id: number; name: string; points: { x: number; delta: number }[] }[] = []
+
+      for (const activity of activities) {
+        if (activity.id === baselineId) continue
+        const stream = streams.get(activity.id)
+        if (!stream) continue
+
+        let compXArr: number[]
+        let compYArr: number[]
+        if (xMetric === 'distance') {
+          compXArr = stream.distance ?? []
+          compYArr = getEffectiveTime(stream) ?? []
+        } else {
+          compXArr = getEffectiveTime(stream) ?? []
+          compYArr = stream.distance ?? []
+        }
+
+        const points = computeDeltaSeries(baselineXArr, baselineYArr, compXArr, compYArr)
+        if (points.length > 0) {
+          deltaSeriesData.push({ id: activity.id, name: activity.name, points })
+        }
+      }
+
+      // Scales
+      const xMax = d3.max(baselineXArr) ?? 10000
+      const xDeltaScale = d3.scaleLinear().domain([0, xMax]).range([0, innerW])
+      xScaleRef.current = xDeltaScale
+
+      const allDeltas = deltaSeriesData.flatMap((s) => s.points.map((p) => p.delta))
+      const minDelta = allDeltas.length > 0 ? d3.min(allDeltas)! : -60
+      const maxDelta = allDeltas.length > 0 ? d3.max(allDeltas)! : 60
+      const pad = Math.max(5, (maxDelta - minDelta) * 0.1)
+      const yDeltaScale = d3.scaleLinear()
+        .domain([minDelta - pad, maxDelta + pad])
+        .range([innerH, 0])
+        .nice()
+      yScaleRef.current = yDeltaScale
+
+      // Grid
+      g.append('g')
+        .attr('class', 'grid-x')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xDeltaScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      g.append('g')
+        .call(d3.axisLeft(yDeltaScale).ticks(8).tickSize(-innerW).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+
+      // Zero reference line
+      g.append('line')
+        .attr('x1', 0).attr('x2', innerW)
+        .attr('y1', yDeltaScale(0)).attr('y2', yDeltaScale(0))
+        .attr('stroke', '#9ca3af').attr('stroke-dasharray', '4,4').attr('stroke-width', 1.5)
+
+      // X-axis
+      const xFmtDelta = xMetric === 'distance'
+        ? (d: d3.NumberValue) => `${(Number(d) / 1000).toFixed(1)}`
+        : (d: d3.NumberValue) => {
+            const totalMins = Math.round(Number(d) / 60)
+            const h = Math.floor(totalMins / 60)
+            const m = totalMins % 60
+            return h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m}m`
+          }
+      g.append('g')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xDeltaScale).ticks(16).tickFormat(xFmtDelta as never))
+        .call((ax) =>
+          ax.append('text')
+            .attr('x', innerW / 2).attr('y', 40)
+            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text(xMetric === 'distance' ? 'Distance (km)' : 'Time')
+        )
+
+      // Y-axis
+      const yDeltaLabel = xMetric === 'distance' ? 'Time delta (s)' : 'Distance delta (m)'
+      g.append('g')
+        .call(d3.axisLeft(yDeltaScale).ticks(8))
+        .call((ax) =>
+          ax.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('x', -innerH / 2).attr('y', -55)
+            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text(yDeltaLabel)
+        )
+
+      // Delta lines
+      const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
+      const deltaLineGen = d3.line<{ x: number; delta: number }>()
+        .x((d) => xDeltaScale(d.x))
+        .y((d) => yDeltaScale(d.delta))
+        .defined((d) => isFinite(d.delta))
+        .curve(d3.curveLinear)
+
+      deltaSeriesData.forEach((s, i) => {
+        const color = colorMap?.get(s.id) ?? colorScale(String(i))
+
+        // Hit area for hover
+        plotGroup.append('path')
+          .datum(s.points)
+          .attr('fill', 'none')
+          .attr('stroke', 'transparent')
+          .attr('stroke-width', 12)
+          .attr('d', deltaLineGen)
+          .style('cursor', 'pointer')
+          .on('mouseenter', function () {
+            if (tooltip) {
+              tooltip.style.display = 'block'
+              tooltip.style.borderColor = color
+              tooltip.textContent = s.name
+            }
+          })
+          .on('mousemove', function (event) {
+            if (!tooltip) return
+            const [mx, my] = d3.pointer(event, containerRef.current!)
+            const xVal = xDeltaScale.invert(mx - MARGIN.left)
+            if (s.points.length > 0) {
+              const closest = s.points.reduce((best, p) =>
+                Math.abs(p.x - xVal) < Math.abs(best.x - xVal) ? p : best
+              )
+              const sign = closest.delta >= 0 ? '+' : ''
+              const unit = xMetric === 'distance' ? 's' : 'm'
+              tooltip.textContent = `${s.name}: ${sign}${closest.delta.toFixed(0)} ${unit}`
+            }
+            tooltip.style.left = `${mx + 14}px`
+            tooltip.style.top = `${my - 10}px`
+          })
+          .on('mouseleave', function () {
+            if (tooltip) tooltip.style.display = 'none'
+          })
+
+        // Visible delta line
+        plotGroup.append('path')
+          .datum(s.points)
+          .attr('class', 'series-line')
+          .attr('fill', 'none')
+          .attr('stroke', color)
+          .attr('stroke-width', 1.5)
+          .attr('opacity', 0.8)
+          .style('pointer-events', 'none')
+          .attr('d', deltaLineGen)
+      })
+
+      return
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Multi-channel rendering path
@@ -605,6 +813,25 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
             .attr('opacity', opacity)
             .style('pointer-events', 'none')
             .attr('d', lineGen)
+
+          // Run-time label at the end of the baseline line for pace channels
+          if (isPace && isBaseline) {
+            const activity = activities.find((a) => a.id === s.id)
+            const runTimeSecs = timeMode === 'moving'
+              ? activity?.moving_time
+              : activity?.elapsed_time
+            const lastPt = [...s.points].reverse().find((p) => xScale(p.x) <= innerW)
+            if (runTimeSecs && lastPt) {
+              g.append('text')
+                .attr('x', Math.min(xScale(lastPt.x), innerW) - 4)
+                .attr('y', channelYScale(lastPt.y) - 25)
+                .attr('text-anchor', 'end')
+                .attr('font-size', '22px')
+                .attr('fill', actColor)
+                .attr('font-weight', '700')
+                .text(fmtTime(runTimeSecs))
+            }
+          }
         })
       })
 
@@ -724,7 +951,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
 
     const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
 
-    // Build series data
+    // ─── normal single-metric rendering ───
     interface Point { x: number; y: number }
 const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[] = []
 
@@ -1100,7 +1327,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         }
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, channels])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, channels, isDeltaMode])
 
   // Handle drag events for WMA contour
   useEffect(() => {
@@ -1318,9 +1545,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
             <button
               key={m}
-              onClick={() => setYMetric(m)}
+              onClick={() => { setYMetric(m); setIsDeltaMode(false) }}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                yMetric === m && !isDeltaMode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
               }`}
             >
               {m === 'cumulative' ? 'cumul.' : m}
@@ -1359,6 +1586,18 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
+
+        {/* Δ delta button — always visible regardless of channel mode */}
+        <button
+          onClick={() => setIsDeltaMode((prev) => !prev)}
+          className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+            isDeltaMode
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'border-indigo-300 text-indigo-500 hover:border-indigo-500 hover:text-indigo-600'
+          }`}
+        >
+          Δ delta
+        </button>
 
         {!multiChannel && (
           /* ── Single-metric-only controls (scale, WMA) ─────────────────── */

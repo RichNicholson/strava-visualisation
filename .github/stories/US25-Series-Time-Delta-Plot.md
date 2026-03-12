@@ -27,6 +27,19 @@ Alternatives considered and rejected:
 - **Concept B** (dropdown in controls bar): lowest code change but the controls bar is already crowded and auto-switching Y mode on dropdown change felt surprising.
 - **Concept C** (roster click-to-baseline + Δ toggle): cleanest visual result but repurposes the existing roster click behaviour (currently: select/focus), which would be a breaking change.
 
+## Completed
+
+**Date**: 2026-03-12
+
+- Created `lib/analysis/timeDelta.ts` with `lerp` (binary-search linear interpolation) and `computeDeltaSeries` (interpolates comparison stream onto baseline x-grid)
+- 18 unit tests in `lib/analysis/timeDelta.test.ts` — all pass
+- `RosterPanel` gains ★ star button per item; `baselineId`/`onSetBaseline` props analogous to `selectedId`/`onSelect`
+- `dashboard/page.tsx` lifts `baselineActivityId` state; clears when item removed from roster
+- `SeriesPlot` gains `isDeltaMode` state (sessionStorage-persisted), Δ delta button in shared controls, and delta rendering block (runs before multi-channel/single-metric paths)
+- Delta rendering: shows prompt when no baseline; draws one line per non-baseline activity with signed delta on y-axis; dashed zero-reference line; tooltip shows `Name: +12 s` / `Name: -45 m`
+- x=distance → y=time delta (positive = behind); x=time → y=distance delta (positive = ahead)
+- 8/8 Playwright acceptance tests pass; 51/51 unit tests pass
+
 ### Implementation notes
 
 - Relevant files: `components/plots/SeriesPlot.tsx` (add delta rendering mode + "Δ delta" Y-seg button), `components/roster/RosterPanel.tsx` (add ★ baseline button per item), `lib/analysis/timeDelta.ts` (new pure function: given baseline stream and comparison stream, compute delta series), `app/dashboard/page.tsx` (lift `baselineActivityId` state)

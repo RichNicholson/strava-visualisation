@@ -55,6 +55,7 @@ export default function Dashboard() {
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
   const [roster, setRoster] = useState<Set<number>>(new Set())
   const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
+  const [baselineActivityId, setBaselineActivityId] = useState<number | null>(null)
   // Scatter plot view state — persisted across tab switches
   const [scatterViewState, setScatterViewState] = useState<ScatterViewState>(DEFAULT_SCATTER_VIEW_STATE)
   // Stable color assignments: activityId -> colorIndex (0-9)
@@ -143,7 +144,15 @@ export default function Dashboard() {
     setRoster(new Set())
     setHiddenRoster(new Set())
     setColorAssignments(new Map())
+    setBaselineActivityId(null)
   }, [])
+
+  // Clear baseline when its activity is removed from the roster
+  useEffect(() => {
+    if (baselineActivityId !== null && !roster.has(baselineActivityId)) {
+      setBaselineActivityId(null)
+    }
+  }, [roster, baselineActivityId])
 
   const toggleHidden = useCallback((id: number) => {
     setHiddenRoster((prev) => {
@@ -319,7 +328,7 @@ export default function Dashboard() {
           loading={streamsLoading}
           colorMap={colorMap}
           athlete={athlete ?? null}
-          baselineId={selectedActivityId}
+          baselineId={baselineActivityId}
           channels={layoutConfig.slots[slotIndex]?.channels}
           onChannelsChange={(ch) => setSlotChannels(slotIndex, ch)}
         />
@@ -354,6 +363,7 @@ export default function Dashboard() {
             activity={selectedActivity}
             stream={mapStream}
             loading={mapStreamLoading}
+            color={selectedActivityId != null ? colorMap.get(selectedActivityId) : undefined}
           />
         )
       }
@@ -525,6 +535,8 @@ export default function Dashboard() {
             onSelect={setSelectedActivityId}
             hiddenIds={hiddenRoster}
             onToggleHidden={toggleHidden}
+            baselineId={baselineActivityId}
+            onSetBaseline={setBaselineActivityId}
           />
         </aside>
 

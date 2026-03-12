@@ -8,9 +8,10 @@ interface RouteMapProps {
   activity: StravaActivity
   stream: ActivityStream | null
   loading?: boolean
+  color?: string
 }
 
-export function RouteMap({ activity, stream, loading }: RouteMapProps) {
+export function RouteMap({ activity, stream, loading, color = '#f97316' }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Store map instance in a ref to clean up on unmount or activity change
   const mapRef = useRef<{ remove: () => void } | null>(null)
@@ -34,13 +35,21 @@ export function RouteMap({ activity, stream, loading }: RouteMapProps) {
       const map = L.map(containerRef.current)
       mapRef.current = map
 
+      // Dim only the tile layer pane — route overlay and markers are in separate panes
+      // and are unaffected by this.
+      map.getPanes().tilePane.style.opacity = '0.45'
+
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
       }).addTo(map)
 
+      // Force Leaflet to recalculate the container dimensions after the browser
+      // has finished laying out flex/grid parents (e.g. the double-panel layout).
+      setTimeout(() => { if (!cancelled) map.invalidateSize() }, 0)
+
       if (stream?.latlng && stream.latlng.length > 0) {
-        const line = L.polyline(stream.latlng, { color: '#f97316', weight: 3, opacity: 0.85 })
+        const line = L.polyline(stream.latlng, { color, weight: 3, opacity: 0.85 })
         line.addTo(map)
         map.fitBounds(line.getBounds(), { padding: [24, 24] })
 
