@@ -92,7 +92,7 @@ export type ViewType = 'scatter' | 'table' | 'series' | 'map'
 export type LayoutMode = 'single' | 'double' | 'quad'
 
 /** All metrics that can be plotted on the Series y-axis. */
-export type SeriesMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence'
+export type SeriesMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence' | 'delta'
 
 /**
  * One metric channel rendered in a Series slot.
