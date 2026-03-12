@@ -9,12 +9,17 @@ interface RouteMapProps {
   stream: ActivityStream | null
   loading?: boolean
   color?: string
+  hoveredStreamIndex?: number | null
 }
 
-export function RouteMap({ activity, stream, loading, color = '#f97316' }: RouteMapProps) {
+export function RouteMap({ activity, stream, loading, color = '#f97316', hoveredStreamIndex }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Store map instance in a ref to clean up on unmount or activity change
   const mapRef = useRef<{ remove: () => void } | null>(null)
+  // Cache the Leaflet module after first dynamic import
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const leafletRef = useRef<any>(null)
+  const hoverMarkerRef = useRef<{ remove: () => void } | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -27,6 +32,8 @@ export function RouteMap({ activity, stream, loading, color = '#f97316' }: Route
 
     import('leaflet').then((L) => {
       if (cancelled || !containerRef.current) return
+
+      leafletRef.current = L
 
       // Prevent Leaflet's default icon resolver from producing webpack:/// paths
       // that Chrome DevTools can't handle ("Unable to add filesystem: <illegal path>")
@@ -69,6 +76,20 @@ export function RouteMap({ activity, stream, loading, color = '#f97316' }: Route
       mapRef.current = null
     }
   }, [activity.id, stream])
+
+  // Add/remove the hover crosshair marker whenever hoveredStreamIndex changes
+  useEffect(() => {
+    hoverMarkerRef.current?.remove()
+    hoverMarkerRef.current = null
+    const L = leafletRef.current
+    const map = mapRef.current
+    if (!L || !map || !stream?.latlng || hoveredStreamIndex == null) return
+    const latlng = stream.latlng[hoveredStreamIndex]
+    if (!latlng) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const marker = L.circleMarker(latlng, { radius: 7, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 2 }).addTo(map as any)
+    hoverMarkerRef.current = marker
+  }, [hoveredStreamIndex, stream])
 
   return (
     <div className="h-full flex flex-col">
