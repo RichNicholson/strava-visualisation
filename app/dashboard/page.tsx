@@ -52,7 +52,6 @@ export default function Dashboard() {
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(DEFAULT_WORKSPACE)
   const [showSettings, setShowSettings] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
-  const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null)
   const [roster, setRoster] = useState<Set<number>>(new Set())
   const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
   const [baselineActivityId, setBaselineActivityId] = useState<number | null>(null)
@@ -242,16 +241,6 @@ export default function Dashboard() {
     setWorkspaceState((prev) => ({ ...prev, activeTabId: id }))
   }, [])
 
-  // Keep selectedActivityId valid whenever the roster changes, or when first entering
-  // map/series mode. The selection is shared between map (which activity to display)
-  // and series (which trace to highlight as baseline).
-  useEffect(() => {
-    const source = rosterActivities
-    setSelectedActivityId((prev) =>
-      source.find((a) => a.id === prev) ? prev : (source[0]?.id ?? null)
-    )
-  }, [rosterActivities])
-
   // Derive which view types are currently visible (across all slots)
   const isSeriesVisible = layoutConfig.slots.some((s) => s.viewType === 'series')
   const isMapVisible = layoutConfig.slots.some((s) => s.viewType === 'map')
@@ -264,12 +253,13 @@ export default function Dashboard() {
   const { streams, loading: streamsLoading, error: streamsError } = useStreams(streamActivityIds)
 
   // Fetch single stream for map mode
+  const mapActivityId = baselineActivityId ?? rosterActivities[0]?.id ?? null
   const { stream: mapStream, loading: mapStreamLoading, error: mapStreamError } = useStream(
-    isMapVisible && roster.size > 0 ? selectedActivityId : null
+    isMapVisible && roster.size > 0 ? mapActivityId : null
   )
 
   const mapSource = roster.size > 0 ? rosterActivities : []
-  const selectedActivity = mapSource.find((a) => a.id === selectedActivityId) ?? null
+  const selectedActivity = mapSource.find((a) => a.id === mapActivityId) ?? null
 
   const showSyncDialog = isSyncing || (progress !== null && progress.phase !== 'error')
 
@@ -363,7 +353,7 @@ export default function Dashboard() {
             activity={selectedActivity}
             stream={mapStream}
             loading={mapStreamLoading}
-            color={selectedActivityId != null ? colorMap.get(selectedActivityId) : undefined}
+            color={mapActivityId != null ? colorMap.get(mapActivityId) : undefined}
           />
         )
       }
@@ -531,8 +521,6 @@ export default function Dashboard() {
             onRemove={toggleRoster}
             onClearAll={clearRoster}
             colorMap={colorMap}
-            selectedId={selectedActivityId}
-            onSelect={setSelectedActivityId}
             hiddenIds={hiddenRoster}
             onToggleHidden={toggleHidden}
             baselineId={baselineActivityId}

@@ -32,6 +32,7 @@ const Y_LABELS: Record<YMetric, string> = {
   heartrate: 'Heart Rate (bpm)',
   elevation: 'Elevation (m)',
   cadence: 'Cadence (spm)',
+  delta: 'Time delta',
 }
 
 const METRIC_SHORT: Record<YMetric, string> = {
@@ -41,6 +42,7 @@ const METRIC_SHORT: Record<YMetric, string> = {
   heartrate: 'Heart Rate',
   elevation: 'Elevation',
   cadence: 'Cadence',
+  delta: 'Time delta',
 }
 
 // Per-channel axis colours (orange, blue, purple, green)
@@ -170,7 +172,15 @@ function computeYDataForChannel(
     case 'heartrate': return stream.heartrate
     case 'elevation': return stream.altitude
     case 'cadence': return stream.cadence
+    case 'delta': return undefined  // handled by dedicated delta rendering path
   }
+}
+
+function orderChannelsForStack(channels: Channel[]): Channel[] {
+  return [
+    ...channels.filter(ch => ch.side === 'left'),
+    ...channels.filter(ch => ch.side === 'right'),
+  ]
 }
 
 export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange }: SeriesPlotProps) {
@@ -185,7 +195,6 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
   const [yViewDomain, setYViewDomain] = useState<[number, number] | null>(null)
   const [yScaleMode, setYScaleMode] = useState<'auto' | '1min' | '2min'>('auto')
-  const [isDeltaMode, setIsDeltaMode] = useState(false)
   const [showWMA, setShowWMA] = useState(true)
   // null = not yet seeded; on first render with pace data we compute from median
   const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
@@ -204,19 +213,15 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     const y = sessionStorage.getItem('series:yMetric') as YMetric | null
     const x = sessionStorage.getItem('series:xMetric') as XMetric | null
     const t = sessionStorage.getItem('series:timeMode') as 'moving' | 'elapsed' | null
-    const delta = sessionStorage.getItem('series:isDeltaMode')
     if (y) setYMetric(y)
     if (x) setXMetric(x)
     if (t) setTimeMode(t)
-    if (delta) setIsDeltaMode(delta === 'true')
   }, [])
 
   // Persist series axis selections to sessionStorage
   useEffect(() => { sessionStorage.setItem('series:yMetric', yMetric) }, [yMetric])
   useEffect(() => { sessionStorage.setItem('series:xMetric', xMetric) }, [xMetric])
   useEffect(() => { sessionStorage.setItem('series:timeMode', timeMode) }, [timeMode])
-  useEffect(() => { sessionStorage.setItem('series:isDeltaMode', String(isDeltaMode)) }, [isDeltaMode])
-
   // Compute median age grade from the current activities whenever athlete / activities change
   const medianAgeGrade = useMemo(() => {
     if (!athlete?.sex || (!athlete?.dateOfBirth && !athlete?.age)) return null
@@ -243,13 +248,16 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   // a previous metric would otherwise produce completely wrong scales.
   useEffect(() => {
     setYViewDomain(null)
-  }, [yMetric, xMetric, timeMode, isDeltaMode])
+  }, [yMetric, xMetric, timeMode])
 
   // Hide editing panel when channels array changes
   useEffect(() => { setEditingChannelIdx(null) }, [channels])
 
   // Determine whether we're in multi-channel mode
   const multiChannel = channels && channels.length > 0
+  // Delta mode is only active in single-metric mode; in multi-channel mode delta is
+  // rendered as a normal channel inside the per-channel forEach loop.
+  const isDeltaMode = !multiChannel && yMetric === 'delta'
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -339,7 +347,11 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           compYArr = stream.distance ?? []
         }
 
-        const points = computeDeltaSeries(baselineXArr, baselineYArr, compXArr, compYArr)
+        const rawPoints = computeDeltaSeries(baselineXArr, baselineYArr, compXArr, compYArr)
+        // Negate for x=distance so faster (less time) plots above zero
+        const points = xMetric === 'distance'
+          ? rawPoints.map(p => ({ ...p, delta: -p.delta }))
+          : rawPoints
         if (points.length > 0) {
           deltaSeriesData.push({ id: activity.id, name: activity.name, points })
         }
@@ -559,6 +571,193 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         if (bandHeight <= 0) return
 
         const channelColor = CHANNEL_PALETTE[(channel.colorIndex ?? chIdx) % CHANNEL_PALETTE.length]
+
+        // ── Delta channel: rendered inline like any other channel ─────────
+        if (channel.metric === 'delta') {
+          const baselineStream = baselineId != null ? streams.get(baselineId) : undefined
+
+          if (!baselineStream || !baselineId) {
+            g.append('text')
+              .attr('x', innerW / 2).attr('y', bandTopPx + bandHeight / 2)
+              .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+              .text('Δ delta — select a baseline in the roster ★')
+            return
+          }
+
+          let baselineXArr: number[]
+          let baselineYArr: number[]
+          if (xMetric === 'distance') {
+            baselineXArr = baselineStream.distance ?? []
+            baselineYArr = getEffectiveTime(baselineStream) ?? []
+          } else {
+            baselineXArr = getEffectiveTime(baselineStream) ?? []
+            baselineYArr = baselineStream.distance ?? []
+          }
+
+          if (baselineXArr.length < 2) return
+
+          const deltaSeriesData: { id: number; name: string; points: { x: number; delta: number }[] }[] = []
+          for (const activity of activities) {
+            if (activity.id === baselineId) continue
+            const stream = streams.get(activity.id)
+            if (!stream) continue
+            let compXArr: number[]
+            let compYArr: number[]
+            if (xMetric === 'distance') {
+              compXArr = stream.distance ?? []
+              compYArr = getEffectiveTime(stream) ?? []
+            } else {
+              compXArr = getEffectiveTime(stream) ?? []
+              compYArr = stream.distance ?? []
+            }
+            const rawPoints = computeDeltaSeries(baselineXArr, baselineYArr, compXArr, compYArr)
+            const points = xMetric === 'distance'
+              ? rawPoints.map(p => ({ ...p, delta: -p.delta }))
+              : rawPoints
+            if (points.length > 0) deltaSeriesData.push({ id: activity.id, name: activity.name, points })
+          }
+
+          const allDeltas = deltaSeriesData.flatMap(s => s.points.map(p => p.delta))
+          let deltaDomain: [number, number]
+          if (channel.scaleMode === '1min' || channel.scaleMode === '2min') {
+            const halfWindow = channel.scaleMode === '1min' ? 30 : 60
+            deltaDomain = [-halfWindow, halfWindow]
+          } else {
+            const minDelta = allDeltas.length > 0 ? d3.min(allDeltas)! : -60
+            const maxDelta = allDeltas.length > 0 ? d3.max(allDeltas)! : 60
+            const pad = Math.max(5, (maxDelta - minDelta) * 0.1)
+            deltaDomain = [minDelta - pad, maxDelta + pad]
+          }
+          const channelYScale = d3.scaleLinear()
+            .domain(deltaDomain)
+            .range([bandTopPx + bandHeight, bandTopPx])
+            .nice()
+
+          if (chIdx === 0) yScaleRef.current = channelYScale
+
+          const HANDLE_H = 8
+          const nTicks = Math.max(3, Math.round(bandHeight / 40))
+          const side = channel.side
+          const sideGroup = side === 'left' ? leftChs : rightChs
+          const sideIdx = sideGroup.findIndex(({ idx }) => idx === chIdx)
+
+          if (side === 'left') {
+            const axisX = -(leftChs.length - 1 - sideIdx) * AXIS_STRIP_W
+            g.append('rect')
+              .attr('x', axisX - AXIS_STRIP_W + 2).attr('y', bandTopPx)
+              .attr('width', AXIS_STRIP_W - 4).attr('height', bandHeight)
+              .attr('fill', channelColor).attr('opacity', 0.1).attr('rx', 3)
+              .style('cursor', 'pointer')
+              .on('click', () => setEditingChannelIdx(prev => prev === chIdx ? null : chIdx))
+            g.append('g')
+              .attr('transform', `translate(${axisX},0)`)
+              .call(d3.axisLeft(channelYScale).ticks(nTicks))
+              .call((ax) => {
+                ax.selectAll('text').attr('fill', channelColor).attr('font-size', '10px')
+                ax.selectAll('line').attr('stroke', channelColor).attr('opacity', 0.4)
+                ax.select('.domain').attr('stroke', channelColor).attr('opacity', 0.4)
+              })
+          } else {
+            const axisX = innerW + sideIdx * AXIS_STRIP_W
+            g.append('rect')
+              .attr('x', axisX + 2).attr('y', bandTopPx)
+              .attr('width', AXIS_STRIP_W - 4).attr('height', bandHeight)
+              .attr('fill', channelColor).attr('opacity', 0.1).attr('rx', 3)
+              .style('cursor', 'pointer')
+              .on('click', () => setEditingChannelIdx(prev => prev === chIdx ? null : chIdx))
+            g.append('g')
+              .attr('transform', `translate(${axisX},0)`)
+              .call(d3.axisRight(channelYScale).ticks(nTicks))
+              .call((ax) => {
+                ax.selectAll('text').attr('fill', channelColor).attr('font-size', '10px')
+                ax.selectAll('line').attr('stroke', channelColor).attr('opacity', 0.4)
+                ax.select('.domain').attr('stroke', channelColor).attr('opacity', 0.4)
+              })
+          }
+
+          const handleX = side === 'left'
+            ? -(leftChs.length - 1 - sideIdx) * AXIS_STRIP_W - AXIS_STRIP_W + 2
+            : innerW + sideIdx * AXIS_STRIP_W + 2
+          const handleW = AXIS_STRIP_W - 4
+
+          g.append('rect')
+            .attr('x', handleX).attr('y', bandTopPx - HANDLE_H / 2)
+            .attr('width', handleW).attr('height', HANDLE_H)
+            .attr('fill', channelColor).attr('opacity', 0.35).attr('rx', 2)
+            .style('cursor', 'ns-resize')
+            .on('mousedown', function (event: MouseEvent) {
+              event.preventDefault(); event.stopPropagation()
+              axisDragRef.current = { chIdx, edge: 'top', startY: event.clientY, startPercent: channel.yTop, innerH }
+            })
+          g.append('rect')
+            .attr('x', handleX).attr('y', bandTopPx + bandHeight - HANDLE_H / 2)
+            .attr('width', handleW).attr('height', HANDLE_H)
+            .attr('fill', channelColor).attr('opacity', 0.35).attr('rx', 2)
+            .style('cursor', 'ns-resize')
+            .on('mousedown', function (event: MouseEvent) {
+              event.preventDefault(); event.stopPropagation()
+              axisDragRef.current = { chIdx, edge: 'bottom', startY: event.clientY, startPercent: channel.yBottom, innerH }
+            })
+
+          if (chIdx > 0) {
+            const prevCh = activeChannels[chIdx - 1]
+            if (channel.yTop >= prevCh.yBottom - 5) {
+              g.append('line')
+                .attr('x1', 0).attr('x2', innerW).attr('y1', bandTopPx).attr('y2', bandTopPx)
+                .attr('stroke', '#d1d5db').attr('stroke-dasharray', '4,4')
+            }
+          }
+
+          // Horizontal grid lines within the band
+          g.append('g')
+            .call(d3.axisLeft(channelYScale).ticks(nTicks).tickSize(-innerW).tickFormat(() => ''))
+            .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb').attr('opacity', 0.5) })
+
+          // Zero reference line
+          g.append('line')
+            .attr('x1', 0).attr('x2', innerW)
+            .attr('y1', channelYScale(0)).attr('y2', channelYScale(0))
+            .attr('stroke', '#9ca3af').attr('stroke-dasharray', '4,4').attr('stroke-width', 1.5)
+
+          // Delta lines
+          const deltaLineGen = d3.line<{ x: number; delta: number }>()
+            .x(d => xScale(d.x))
+            .y(d => channelYScale(d.delta))
+            .defined(d => isFinite(d.delta))
+            .curve(d3.curveLinear)
+
+          deltaSeriesData.forEach((s, actIdx) => {
+            const actColor = colorMap?.get(s.id) ?? colorScale(String(actIdx))
+            plotGroup.append('path')
+              .datum(s.points)
+              .attr('fill', 'none').attr('stroke', 'transparent').attr('stroke-width', 12)
+              .attr('d', deltaLineGen).style('cursor', 'pointer')
+              .on('mouseenter', function () {
+                if (tooltip) { tooltip.style.display = 'block'; tooltip.style.borderColor = actColor; tooltip.textContent = s.name }
+              })
+              .on('mousemove', function (event) {
+                if (!tooltip) return
+                const [mx, my] = d3.pointer(event, containerRef.current!)
+                const xVal = xScale.invert(mx - dynMargin.left)
+                if (s.points.length > 0) {
+                  const closest = s.points.reduce((best, p) => Math.abs(p.x - xVal) < Math.abs(best.x - xVal) ? p : best)
+                  const sign = closest.delta >= 0 ? '+' : ''
+                  const unit = xMetric === 'distance' ? 's' : 'm'
+                  tooltip.textContent = `${s.name}: ${sign}${closest.delta.toFixed(0)} ${unit}`
+                }
+                tooltip.style.left = `${mx + 14}px`; tooltip.style.top = `${my - 10}px`
+              })
+              .on('mouseleave', function () { if (tooltip) tooltip.style.display = 'none' })
+            plotGroup.append('path')
+              .datum(s.points)
+              .attr('class', 'series-line').attr('data-id', String(s.id))
+              .attr('fill', 'none').attr('stroke', actColor).attr('stroke-width', 1.5).attr('opacity', 0.8)
+              .style('pointer-events', 'none').attr('d', deltaLineGen)
+          })
+
+          return // skip normal channel processing
+        }
+
         const isPace = channel.metric === 'cumulative' || channel.metric === 'rolling' || channel.metric === 'raw'
 
         // Collect y-data across all activities for this channel's metric
@@ -1327,7 +1526,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         }
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, channels, isDeltaMode])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, channels])
 
   // Handle drag events for WMA contour
   useEffect(() => {
@@ -1453,29 +1652,30 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                   const count = channels!.length + 1
                   const isStacked = channelLayout === 'stack'
                   const bandSize = isStacked ? 100 / count : 100
-                  // Balance sides — max 2 per side
                   const nLeft = channels!.filter(c => c.side === 'left').length
-                  const nRight = channels!.filter(c => c.side === 'right').length
-                  const newSide: 'left' | 'right' = nLeft <= nRight && nLeft < 2 ? 'left' : 'right'
+                  const newSide: 'left' | 'right' = nLeft < 2 ? 'left' : 'right'
                   // Assign stable colorIndex: lowest unused 0-3
                   const usedColors = new Set(channels!.map(c => c.colorIndex ?? 0))
                   let newColorIndex = 0
                   while (usedColors.has(newColorIndex)) newColorIndex++
+                  const nextChannels = orderChannelsForStack([
+                    ...channels!,
+                    {
+                      metric: next,
+                      side: newSide,
+                      yTop: 0,
+                      yBottom: 100,
+                      scaleMode: 'auto' as const,
+                      colorIndex: newColorIndex,
+                    },
+                  ])
                   const updated = isStacked
-                    ? channels!.map((ch, i) => ({
+                    ? nextChannels.map((ch, i) => ({
                         ...ch,
                         yTop: Math.round(i * bandSize),
                         yBottom: Math.round((i + 1) * bandSize),
                       }))
-                    : channels!.map(ch => ({ ...ch, yTop: 0, yBottom: 100 }))
-                  updated.push({
-                    metric: next,
-                    side: newSide,
-                    yTop: isStacked ? Math.round((count - 1) * bandSize) : 0,
-                    yBottom: 100,
-                    scaleMode: 'auto' as const,
-                    colorIndex: newColorIndex,
-                  })
+                    : nextChannels.map(ch => ({ ...ch, yTop: 0, yBottom: 100 }))
                   onChannelsChange(updated)
                 }}
                 className="px-2 py-0.5 text-xs rounded border border-dashed border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 transition-colors"
@@ -1492,11 +1692,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                       if (!onChannelsChange) return
                       if (mode === 'stack') {
                         const bandSize = 100 / channels!.length
-                        // Sort left axes before right axes, preserving original order within each side
-                        const sorted = [
-                          ...channels!.filter(ch => ch.side === 'left'),
-                          ...channels!.filter(ch => ch.side === 'right'),
-                        ]
+                        const sorted = orderChannelsForStack(channels!)
                         onChannelsChange(sorted.map((ch, i) => ({
                           ...ch,
                           yTop: Math.round(i * bandSize),
@@ -1542,15 +1738,15 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">Y:</span>
-          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as YMetric[]).map((m) => (
             <button
               key={m}
-              onClick={() => { setYMetric(m); setIsDeltaMode(false) }}
+              onClick={() => setYMetric(m)}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                yMetric === m && !isDeltaMode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m}
+              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m}
             </button>
           ))}
         </div>
@@ -1586,18 +1782,6 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
-
-        {/* Δ delta button — always visible regardless of channel mode */}
-        <button
-          onClick={() => setIsDeltaMode((prev) => !prev)}
-          className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-            isDeltaMode
-              ? 'bg-indigo-600 text-white border-indigo-600'
-              : 'border-indigo-300 text-indigo-500 hover:border-indigo-500 hover:text-indigo-600'
-          }`}
-        >
-          Δ delta
-        </button>
 
         {!multiChannel && (
           /* ── Single-metric-only controls (scale, WMA) ─────────────────── */
@@ -1659,6 +1843,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           const ch = channels![editingChannelIdx]
           const chColor = CHANNEL_PALETTE[(ch.colorIndex ?? editingChannelIdx) % CHANNEL_PALETTE.length]
           const chIsPace = ch.metric === 'cumulative' || ch.metric === 'rolling' || ch.metric === 'raw'
+          const chIsDelta = ch.metric === 'delta'
           return (
             <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3 py-2 bg-white rounded-lg border shadow-lg"
               style={{ borderColor: chColor }}>
@@ -1674,7 +1859,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
                 style={{ color: chColor }}
               >
-                {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence'] as SeriesMetric[]).map((m) => (
+                {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).map((m) => (
                   <option key={m} value={m}>{METRIC_SHORT[m]}</option>
                 ))}
               </select>
@@ -1706,7 +1891,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 })}
               </div>
               {/* Scale mode */}
-              {chIsPace && (
+              {(chIsPace || chIsDelta) && (
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-gray-500">scale:</span>
                   {(['auto', '1min', '2min'] as const).map((mode) => (

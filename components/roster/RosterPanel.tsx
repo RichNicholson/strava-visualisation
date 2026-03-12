@@ -10,15 +10,13 @@ interface RosterPanelProps {
   onRemove: (id: number) => void
   onClearAll?: () => void
   colorMap?: Map<number, string>
-  selectedId?: number | null
-  onSelect?: (id: number) => void
   hiddenIds?: Set<number>
   onToggleHidden?: (id: number) => void
   baselineId?: number | null
   onSetBaseline?: (id: number | null) => void
 }
 
-export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, selectedId, onSelect, hiddenIds, onToggleHidden, baselineId, onSetBaseline }: RosterPanelProps) {
+export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, hiddenIds, onToggleHidden, baselineId, onSetBaseline }: RosterPanelProps) {
   const count = rosterActivities.length
 
   return (
@@ -54,15 +52,15 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
         <ul className="space-y-1">
           {rosterActivities.map((a) => {
             const pace = a.average_speed > 0 ? 1000 / a.average_speed : null
-            const isSelected = selectedId === a.id
+            const isBaseline = baselineId === a.id
             return (
               <li
                 key={a.id}
-                onClick={() => onSelect?.(a.id)}
+                onClick={() => onSetBaseline?.(isBaseline ? null : a.id)}
                 className={`flex items-center gap-1.5 group py-1 px-2 rounded transition-colors ${
-                  isSelected
+                  isBaseline
                     ? 'bg-orange-50 border border-orange-200'
-                    : onSelect
+                    : onSetBaseline
                     ? 'cursor-pointer hover:bg-orange-50'
                     : 'hover:bg-orange-50'
                 } ${hiddenIds?.has(a.id) ? 'opacity-50' : ''}`}

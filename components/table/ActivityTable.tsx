@@ -20,6 +20,7 @@ function fmtDate(iso: string) {
 
 export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTableProps) {
   const [sort, setSort] = useState<{ col: SortCol; dir: SortDir }>({ col: 'date', dir: 'desc' })
+  const [nameFilter, setNameFilter] = useState('')
 
   const hasHR = useMemo(() => activities.some((a) => a.average_heartrate != null), [activities])
   const rosterFull = roster.size >= ROSTER_CAPACITY
@@ -31,7 +32,8 @@ export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTa
   }
 
   const sorted = useMemo(() => {
-    const copy = [...activities]
+    const needle = nameFilter.trim().toLowerCase()
+    const copy = needle ? activities.filter((a) => a.name.toLowerCase().includes(needle)) : [...activities]
     const { col, dir } = sort
     copy.sort((a, b) => {
       let diff = 0
@@ -44,7 +46,7 @@ export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTa
       return dir === 'asc' ? diff : -diff
     })
     return copy
-  }, [activities, sort])
+  }, [activities, sort, nameFilter])
 
   function SortTh({ col, label, className = '' }: { col: SortCol; label: string; className?: string }) {
     const active = sort.col === col
@@ -64,15 +66,22 @@ export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTa
   return (
     <div className="flex flex-col h-full">
       {/* Count bar */}
-      <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-2 flex-shrink-0 bg-white">
-        <span className="text-sm text-gray-500">
-          {activities.length} {activities.length === 1 ? 'activity' : 'activities'}
+      <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-3 flex-shrink-0 bg-white">
+        <span className="text-sm text-gray-500 whitespace-nowrap">
+          {sorted.length}{sorted.length !== activities.length ? ` / ${activities.length}` : ''} {activities.length === 1 ? 'activity' : 'activities'}
         </span>
         {roster.size > 0 && (
-          <span className="text-sm text-orange-600 font-medium">
+          <span className="text-sm text-orange-600 font-medium whitespace-nowrap">
             · {roster.size} in roster
           </span>
         )}
+        <input
+          type="text"
+          placeholder="Filter by name…"
+          value={nameFilter}
+          onChange={(e) => setNameFilter(e.target.value)}
+          className="ml-auto w-48 px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        />
       </div>
 
       {/* Table */}
