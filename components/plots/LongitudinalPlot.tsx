@@ -37,6 +37,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [targetDistance, setTargetDistance] = useState(5000)
   const [windowMonths, setWindowMonths] = useState(6)
+  const [paceType, setPaceType] = useState<'moving' | 'elapsed'>('moving')
   const [tooltip, setTooltip] = useState<{
     x: number
     y: number
@@ -44,9 +45,16 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
     rollingBestPace: number
   } | null>(null)
 
+  const getSpeed = useMemo(
+    () => paceType === 'elapsed'
+      ? (a: StravaActivity) => a.distance / a.elapsed_time
+      : (a: StravaActivity) => a.average_speed,
+    [paceType],
+  )
+
   const rollingData = useMemo(
-    () => computeRollingBest(activities, targetDistance, windowMonths),
-    [activities, targetDistance, windowMonths],
+    () => computeRollingBest(activities, targetDistance, windowMonths, getSpeed),
+    [activities, targetDistance, windowMonths, getSpeed],
   )
 
   useEffect(() => {
@@ -135,7 +143,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
       .join('circle')
       .attr('class', 'dot')
       .attr('cx', (d) => xScale(new Date(d.activity.start_date)))
-      .attr('cy', (d) => yScale(paceToDisplayUnit(1000 / d.activity.average_speed, units)))
+      .attr('cy', (d) => yScale(paceToDisplayUnit(1000 / getSpeed(d.activity), units)))
       .attr('r', 4)
       .attr('fill', DOT_COLOR)
       .attr('stroke', 'white')
@@ -161,7 +169,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
     const lineGen = d3.line<typeof rollingData[number]>()
       .x((d) => xScale(new Date(d.activity.start_date)))
       .y((d) => yScale(paceToDisplayUnit(d.rollingBestPace, units)))
-      .curve(d3.curveStepAfter)
+      .curve(d3.curveLinear)
 
     g.append('path')
       .datum(rollingData)
@@ -170,21 +178,23 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
       .attr('stroke-width', 2.5)
       .attr('d', lineGen)
 
-    // Rolling best dots on the curve
+    // Rolling best dots — only for runs that actually set the rolling best
+    const definingIds = new Set(rollingData.map((d) => d.definingActivity.id))
+    const bestSetters = rollingData.filter((d) => definingIds.has(d.activity.id))
     g.selectAll('circle.best')
-      .data(rollingData)
+      .data(bestSetters)
       .join('circle')
       .attr('class', 'best')
       .attr('cx', (d) => xScale(new Date(d.activity.start_date)))
       .attr('cy', (d) => yScale(paceToDisplayUnit(d.rollingBestPace, units)))
-      .attr('r', 3)
+      .attr('r', 5)
       .attr('fill', CURVE_COLOR)
       .attr('stroke', 'white')
       .attr('stroke-width', 1)
       .attr('opacity', 0.9)
       .style('cursor', 'pointer')
       .on('mouseenter', function (event: MouseEvent, d) {
-        d3.select(this).attr('r', 5)
+        d3.select(this).attr('r', 7)
         const rect = svgRef.current!.getBoundingClientRect()
         setTooltip({
           x: event.clientX - rect.left,
@@ -194,14 +204,14 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
         })
       })
       .on('mouseleave', function () {
-        d3.select(this).attr('r', 3)
+        d3.select(this).attr('r', 5)
         setTooltip(null)
       })
 
-  }, [rollingData, units])
+  }, [rollingData, units, getSpeed])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full select-none">
       {/* Controls */}
       <div className="flex items-center gap-4 flex-wrap p-3 border-b border-gray-100">
         {/* Target distance */}
@@ -244,6 +254,24 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
           </div>
         </div>
 
+        {/* Pace type toggle */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-gray-500">Pace</span>
+          <div className="flex rounded border border-gray-200 overflow-hidden">
+            {(['moving', 'elapsed'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setPaceType(t)}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                  paceType === t ? 'bg-orange-500 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex items-center gap-3 ml-auto text-xs text-gray-400">
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-0.5 bg-orange-400" />
@@ -271,7 +299,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
             </p>
             <p className="text-gray-600">{formatDistance(tooltip.activity.distance, units)}</p>
             <p className="text-gray-600">
-              {formatPace(1000 / tooltip.activity.average_speed, units)} avg
+              {formatPace(1000 / getSpeed(tooltip.activity), units)} {paceType === 'elapsed' ? 'elapsed' : 'moving'} avg
             </p>
             <p className="text-orange-600 text-xs mt-1">
               Rolling best: {formatPace(tooltip.rollingBestPace, units)}

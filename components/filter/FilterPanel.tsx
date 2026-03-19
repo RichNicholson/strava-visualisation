@@ -210,12 +210,12 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
     : [DIST_MIN, DIST_MAX]
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-gray-800">
+        <h2 className="font-semibold text-gray-800 dark:text-gray-100">
           Filters
-          <span className="ml-2 text-sm font-normal text-gray-500">
+          <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
             ({filteredCount} / {allActivities.length})
           </span>
         </h2>
@@ -228,7 +228,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       </div>
 
       {/* ── Presets ─────────────────────────────────────────────── */}
-      <hr className="border-t border-gray-200" />
+      <hr className="border-t border-gray-200 dark:border-gray-600" />
       <div>
         <FilterPresets
           currentFilter={filter}
@@ -239,11 +239,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       {/* ── Sport ───────────────────────────────────────────────── */}
       {sportTypes.length > 0 && (
         <>
-          <hr className="border-t border-gray-200" />
+          <hr className="border-t border-gray-200 dark:border-gray-600" />
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Sport</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Sport</p>
             <details ref={sportDetailsRef} className="relative group">
-              <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-orange-300 list-none">
+              <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-100 hover:border-orange-300 list-none">
                 <span className="truncate">
                   {filter.sport.length === 0
                     ? 'All sports'
@@ -251,15 +251,15 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
                     ? filter.sport.join(', ')
                     : `${filter.sport.length} selected`}
                 </span>
-                <svg className="ml-2 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                <svg className="ml-2 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                 </svg>
               </summary>
-              <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+              <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-lg max-h-48 overflow-y-auto">
                 {sportTypes.map((sport) => (
                   <label
                     key={sport}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-orange-50 cursor-pointer"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-orange-50 cursor-pointer"
                   >
                     <input
                       type="checkbox"
@@ -277,13 +277,13 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
       )}
 
       {/* ── Filters (Date / Distance / Pace / HR) ───────────────── */}
-      <hr className="border-t border-gray-200" />
+      <hr className="border-t border-gray-200 dark:border-gray-600" />
       <div className="space-y-4">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Filters</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Filters</p>
 
         {/* Date range */}
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-500">Date range</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Date range</p>
           <div className="grid grid-cols-4 gap-1">
             {DATE_PRESETS.map(({ label, months }) => (
               <button
@@ -292,7 +292,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
                 className={`py-0.5 text-xs rounded border transition-colors text-center ${
                   isDatePresetActive(months)
                     ? 'bg-orange-500 text-white border-orange-500'
-                    : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600'
                 }`}
               >
                 {label}
@@ -312,14 +312,14 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
 
         {/* Distance range */}
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-500">Distance</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Distance</p>
           <div className="flex gap-1.5">
             <button
               onClick={() => onChange({ ...filter, distanceRange: { min: 0, max: TEN_K_DIST } })}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                 isTenKPresetActive
                   ? 'bg-orange-500 text-white border-orange-500'
-                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600'
               }`}
             >
               &lt; 10k
@@ -329,7 +329,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                 isMarathonPresetActive
                   ? 'bg-orange-500 text-white border-orange-500'
-                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600'
               }`}
             >
               &lt; Marathon
@@ -339,7 +339,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                 isAllDistanceActive
                   ? 'bg-orange-500 text-white border-orange-500'
-                  : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-600'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600'
               }`}
             >
               All
@@ -358,7 +358,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
 
         {/* Pace */}
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-500">Pace</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Pace</p>
           <PaceFilterRow
             pace={filter.pace}
             onChange={(pace) => onChange({ ...filter, pace })}
@@ -369,11 +369,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         {activeOptionals.has('elevationGain') && elevBounds && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">Elevation Gain</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Elevation Gain</p>
               <button
                 onClick={() => removeOptionalFilter('elevationGain')}
                 aria-label="Remove elevation gain filter"
-                className="text-gray-400 hover:text-gray-600 leading-none"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 leading-none"
               >
                 ×
               </button>
@@ -396,11 +396,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         {activeOptionals.has('sufferScore') && sufferBounds && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">Suffer Score</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Suffer Score</p>
               <button
                 onClick={() => removeOptionalFilter('sufferScore')}
                 aria-label="Remove suffer score filter"
-                className="text-gray-400 hover:text-gray-600 leading-none"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 leading-none"
               >
                 ×
               </button>
@@ -423,11 +423,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         {activeOptionals.has('movingTime') && movingTimeBounds && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">Moving Time</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Moving Time</p>
               <button
                 onClick={() => removeOptionalFilter('movingTime')}
                 aria-label="Remove moving time filter"
-                className="text-gray-400 hover:text-gray-600 leading-none"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 leading-none"
               >
                 ×
               </button>
@@ -450,11 +450,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         {activeOptionals.has('elapsedTime') && elapsedTimeBounds && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">Elapsed Time</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Elapsed Time</p>
               <button
                 onClick={() => removeOptionalFilter('elapsedTime')}
                 aria-label="Remove elapsed time filter"
-                className="text-gray-400 hover:text-gray-600 leading-none"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 leading-none"
               >
                 ×
               </button>
@@ -477,11 +477,11 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
         {activeOptionals.has('heartrate') && hrBounds && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">Heart Rate</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Heart Rate</p>
               <button
                 onClick={() => removeOptionalFilter('heartrate')}
                 aria-label="Remove heart rate filter"
-                className="text-gray-400 hover:text-gray-600 leading-none"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 leading-none"
               >
                 ×
               </button>
@@ -503,7 +503,7 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
               formatValue={(v) => `${Math.round(v)} bpm`}
               parseValue={(raw) => { const n = parseInt(raw); return isNaN(n) ? null : n }}
             />
-            <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={filter.heartrate?.includeNoHR ?? true}
@@ -533,12 +533,12 @@ export function FilterPanel({ filter, onChange, allActivities, filteredCount }: 
               </svg>
               Add filter
             </summary>
-            <div className="absolute z-10 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white shadow-lg">
+            <div className="absolute z-10 mt-1 min-w-[140px] rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-lg">
               {OPTIONAL_FILTER_DEFS.filter((f) => !activeOptionals.has(f.key)).map((f) => (
                 <button
                   key={f.key}
                   onClick={() => addOptionalFilter(f.key)}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-orange-50"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-orange-50"
                 >
                   {f.label}
                 </button>

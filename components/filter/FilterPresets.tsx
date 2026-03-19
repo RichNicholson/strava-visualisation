@@ -54,12 +54,12 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
 
       {/* Preset dropdown */}
       <details ref={detailsRef} className="relative group">
-        <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-orange-300 list-none">
-          <span className="truncate text-gray-500 italic">
+        <summary className="flex items-center justify-between cursor-pointer select-none rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-100 hover:border-orange-300 list-none">
+          <span className="truncate text-gray-500 dark:text-gray-400 italic">
             {presets.length === 0 ? 'No saved presets yet' : 'Select a preset…'}
           </span>
           <svg
-            className="ml-2 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180"
+            className="ml-2 h-4 w-4 shrink-0 text-gray-400 dark:text-gray-500 transition-transform group-open:rotate-180"
             viewBox="0 0 20 20"
             fill="currentColor"
           >
@@ -70,20 +70,20 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
             />
           </svg>
         </summary>
-        <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-10 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 shadow-lg max-h-48 overflow-y-auto">
           {presets.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-gray-400 italic">
+            <p className="px-3 py-2 text-xs text-gray-400 dark:text-gray-500 italic">
               Save your current filter as a preset using the field below.
             </p>
           ) : (
             presets.map((preset) => (
               <div
                 key={preset.name}
-                className="flex items-center gap-1 px-2 py-1.5 hover:bg-orange-50 group/row"
+                className="flex items-center gap-1 px-2 py-1.5 hover:bg-orange-50 dark:hover:bg-orange-900/20 group/row"
               >
                 <button
                   onClick={() => handleLoad(preset)}
-                  className="flex-1 text-left text-sm text-gray-700 truncate"
+                  className="flex-1 text-left text-sm text-gray-700 dark:text-gray-200 truncate"
                 >
                   {preset.name}
                 </button>
@@ -112,7 +112,7 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSave()}
           placeholder="Name this filter…"
-          className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded outline-none focus:border-orange-400"
+          className="flex-1 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded outline-none focus:border-orange-400"
         />
         <button
           onClick={handleSave}

@@ -43,6 +43,15 @@
 | ✅ 34 | US35-Series-CumulativePaceCDF.md | Cumulative pace distribution plot (series mode) | Medium | High | Interesting pace distribution view; less immediately actionable for race analysis than best split |
 | ✅ 35 | US37-Analysis-LongitudinalBestTime.md | Longitudinal best time plot | High | High | New tile type with rolling-window logic; high long-term value for fitness tracking |
 | ✅ 36 | US34-Settings-DarkMode.md | Dark mode toggle | Medium | High | Cross-cutting (D3 SVGs, Leaflet, Tailwind); best left until the plot surface is stable |
+| ✅ 37 | US38-Layout-SavedPresets.md | Named layout presets | Medium | High | Persist workspace configuration as named presets for quick switching |
+| ✅ 38 | US39-Layout-TabBarUX.md | Tab bar UX improvements | Low | Low | Hover-to-delete, inline rename, smart auto-naming, remove redundant selector |
+| ✅ 39 | US40-Scatter-ElapsedPaceFilter.md | Pace filter with elapsed pace axis | Low | Low | Bug fix: verified filter already works correctly (no code change needed) |
+| ✅ 40 | US41-Scatter-ParetoToggle.md | Pareto front toggle | Low | Low | Toggle button to hide/show Pareto front rings |
+| ✅ 41 | US42-Series-WMAToggleButtons.md | WMA toggle buttons in series plot | Low | Low | Visual consistency: replace checkboxes with toggle buttons |
+| ✅ 42 | US43-Series-ChannelUXRedesign.md | Series channel controls UX redesign | Medium | Medium | Inline accordion replaces floating dialog; 2-click metric change |
+| ✅ 43 | US44-Series-BestSplitBug.md | Best split mid-run segment detection | High | Low | Unit test added; algorithm verified correct |
+| ✅ 44 | US45-Trend-DotHighlighting.md | Trend plot dot highlighting | Medium | Low | Accurate orange dots for all runs that ever define the rolling best |
+| ✅ 45 | US46-Scatter-ParetoFrontDarkMode.md | Pareto front dark mode fix | Low | Low | Bug fix: ring stroke colour adapts to dark/light mode |
 
 ## Notes
 

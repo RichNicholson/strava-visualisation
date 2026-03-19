@@ -78,10 +78,14 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
 
   const [tooltip, setTooltip] = useState<{ x: number; y: number; activity: StravaActivity } | null>(null)
   const [showWMAContours, setShowWMAContours] = useState(true)
+  const [showPareto, setShowPareto] = useState(true)
 
   const paretoFront = useMemo(() => {
     if (yAxis === 'average_pace') {
       return computeParetoFront(activities, (a) => (a.average_speed > 0 ? 1000 / a.average_speed : Infinity), false)
+    }
+    if (yAxis === 'elapsed_pace') {
+      return computeParetoFront(activities, (a) => getMetricValue(a, 'elapsed_pace'), false)
     }
     if (xAxis === 'distance') {
       return computeParetoFront(activities, (a) => getMetricValue(a, yAxis), true)
@@ -96,7 +100,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     const gridColor = isDark ? '#374151' : '#e5e7eb'
     const labelColor = isDark ? '#9ca3af' : '#6b7280'
 
-    const isPace = yAxis === 'average_pace'
+    const isPace = yAxis === 'average_pace' || yAxis === 'elapsed_pace'
 
     // For the distance axis, getMetricValue returns km; convert to miles if needed
     const getXValueForActivity = (a: StravaActivity): number => {
@@ -206,7 +210,9 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
       : undefined
 
     const yLabel = isPace
-      ? (units === 'imperial' ? 'Avg Pace (min/mi)' : 'Avg Pace (min/km)')
+      ? (units === 'imperial'
+          ? METRIC_LABELS[yAxis].replace('min/km', 'min/mi')
+          : METRIC_LABELS[yAxis])
       : METRIC_LABELS[yAxis]
 
     g.append('g')
@@ -392,19 +398,21 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     const outBoundsSelected = outBoundsData.filter((d) => roster?.has(d.activity.id))
 
     // ── In-bounds: Pareto rings (rendered under main dots) ───────────────────
-    const paretoData = inBoundsData.filter((d) => paretoFront.has(d.activity.id))
-    dotsGroup.selectAll('circle.pareto-ring')
-      .data(paretoData)
-      .join('circle')
-      .attr('class', 'pareto-ring')
-      .attr('cx', (d) => d.cx)
-      .attr('cy', (d) => d.cy)
-      .attr('r', (d) => (roster?.has(d.activity.id) ? 8 + 3 : 5 + 3))
-      .attr('fill', 'none')
-      .attr('stroke', '#1f2937')
-      .attr('stroke-width', 2)
-      .attr('opacity', 0.6)
-      .attr('pointer-events', 'none')
+    if (showPareto) {
+      const paretoData = inBoundsData.filter((d) => paretoFront.has(d.activity.id))
+      dotsGroup.selectAll('circle.pareto-ring')
+        .data(paretoData)
+        .join('circle')
+        .attr('class', 'pareto-ring')
+        .attr('cx', (d) => d.cx)
+        .attr('cy', (d) => d.cy)
+        .attr('r', (d) => (roster?.has(d.activity.id) ? 8 + 3 : 5 + 3))
+        .attr('fill', 'none')
+        .attr('stroke', isDark ? '#e5e7eb' : '#1f2937')
+        .attr('stroke-width', 2)
+        .attr('opacity', 0.6)
+        .attr('pointer-events', 'none')
+    }
 
     // ── In-bounds: circles (unselected, then selected) ───────────────────────
     // Visual circles — appearance only, no pointer events (hit areas handle interaction)
@@ -512,12 +520,12 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
     renderCrosses(outBoundsUnselected, false)
     renderCrosses(outBoundsSelected, true)
 
-  }, [activities, xAxis, yAxis, athlete, showWMA, showWMAContours, colorMetric, colorScheme, viewDomain, roster, colorMap, units, paretoFront, isDark])
+  }, [activities, xAxis, yAxis, athlete, showWMA, showWMAContours, showPareto, colorMetric, colorScheme, viewDomain, roster, colorMap, units, paretoFront, isDark])
 
   const autoScale = () => setViewDomain(null)
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full select-none">
       {/* Controls — two rows */}
       <div className="flex flex-col gap-1.5 p-3 border-b border-gray-100 dark:border-gray-700">
 
@@ -583,6 +591,19 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
               </span>
             )
           )}
+
+          {/* Pareto toggle */}
+          <button
+            onClick={() => setShowPareto((v) => !v)}
+            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+              showPareto
+                ? 'bg-green-50 border-green-300 text-green-700'
+                : 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500'
+            }`}
+            title={showPareto ? 'Hide Pareto front' : 'Show Pareto front'}
+          >
+            Pareto
+          </button>
         </div>
 
         {/* Row 2: colour */}

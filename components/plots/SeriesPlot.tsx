@@ -266,8 +266,6 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     setYViewDomain(null)
   }, [yMetric, xMetric, timeMode])
 
-  // Hide editing panel when channels array changes
-  useEffect(() => { setEditingChannelIdx(null) }, [channels])
 
   // Determine whether we're in multi-channel mode
   const multiChannel = channels && channels.length > 0
@@ -322,7 +320,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       activities.forEach((activity) => {
         const stream = streams.get(activity.id)
         if (!stream?.velocity_smooth || !stream.time) return
-        const pts = computePaceCDF(stream.velocity_smooth, stream.time)
+        const pts = computePaceCDF(stream.velocity_smooth, stream.time, stream.moving)
         if (pts.length > 0) cdfSeries.push({ id: activity.id, name: activity.name, points: pts })
       })
 
@@ -331,8 +329,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       const allPaces = cdfSeries.flatMap((s) => s.points.map((p) => p.pace))
       const paceMin = d3.min(allPaces)!
       const paceMax = d3.max(allPaces)!
-      // x-axis: left = slowest (paceMax), right = fastest (paceMin)
-      const xScale = d3.scaleLinear().domain([paceMax * 1.02, paceMin * 0.98]).range([0, innerW])
+      // x-axis: left = fastest (paceMin), right = slowest (paceMax)
+      const xScale = d3.scaleLinear().domain([paceMin * 0.98, paceMax * 1.02]).range([0, innerW])
       const yScale = d3.scaleLinear().domain([0, 100]).range([innerH, 0])
 
       g.append('g')
@@ -377,7 +375,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .line<{ pace: number; cumulativePercent: number }>()
         .x((d) => xScale(d.pace))
         .y((d) => yScale(d.cumulativePercent))
-        .curve(d3.curveCatmullRom)
+        .curve(d3.curveMonotoneX)
 
       const tooltipEl = tooltipRef.current
 
@@ -833,6 +831,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .append('rect').attr('width', innerW).attr('height', innerH)
 
       const g = svg.append('g').attr('transform', `translate(${dynMargin.left},${dynMargin.top})`)
+      const crosshairGroup = g.append('g').attr('class', 'crosshair-overlay').style('pointer-events', 'none')
 
       // ── Helper: compute X data respecting time mode ────────────────────
       function getXData(stream: ActivityStream): number[] | undefined {
@@ -1307,14 +1306,56 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
               if (tooltip) {
                 tooltip.style.display = 'block'
                 tooltip.style.borderColor = actColor
-                tooltip.textContent = `${s.name} — ${METRIC_SHORT[channel.metric]}`
               }
             })
             .on('mousemove', function (event) {
+              const [mx, my] = d3.pointer(event, containerRef.current!)
               if (tooltip) {
-                const [mx, my] = d3.pointer(event, containerRef.current!)
                 tooltip.style.left = `${mx + 14}px`
                 tooltip.style.top = `${my - 10}px`
+              }
+              const plotX = mx - dynMargin.left
+              const xDataVal = xScale.invert(plotX)
+              const clampedX = Math.max(0, Math.min(innerW, plotX))
+              // Update tooltip with channel value at cursor x
+              if (tooltip && s.points.length > 0) {
+                const closest = s.points.reduce((best, p) =>
+                  Math.abs(p.x - xDataVal) < Math.abs(best.x - xDataVal) ? p : best
+                )
+                const isPaceCh = channel.metric === 'cumulative' || channel.metric === 'rolling' || channel.metric === 'raw'
+                let valStr: string
+                if (isPaceCh) {
+                  const p = paceToDisplayUnit(closest.y, units)
+                  valStr = `${Math.floor(p / 60)}:${String(Math.round(p % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
+                } else if (channel.metric === 'heartrate') {
+                  valStr = `${Math.round(closest.y)} bpm`
+                } else if (channel.metric === 'elevation') {
+                  valStr = `${Math.round(closest.y)} m`
+                } else if (channel.metric === 'cadence') {
+                  valStr = `${Math.round(closest.y)} spm`
+                } else if (channel.metric === 'delta') {
+                  valStr = `${closest.y >= 0 ? '+' : ''}${closest.y.toFixed(0)} s`
+                } else {
+                  valStr = closest.y.toFixed(1)
+                }
+                tooltip.textContent = valStr
+              }
+              // Crosshair vertical line
+              crosshairGroup.selectAll('*').remove()
+              crosshairGroup.append('line')
+                .attr('x1', clampedX).attr('x2', clampedX)
+                .attr('y1', 0).attr('y2', innerH)
+                .attr('stroke', '#9ca3af').attr('stroke-dasharray', '3,3').attr('stroke-width', 1)
+              // Map link: find closest stream index
+              const stream = streams.get(s.id)
+              const xArr = xMetric === 'distance' ? stream?.distance : stream?.time
+              if (stream && xArr) {
+                let closestIdx = 0, minDiff = Infinity
+                for (let ii = 0; ii < xArr.length; ii++) {
+                  const diff = Math.abs((xArr[ii] ?? 0) - xDataVal)
+                  if (diff < minDiff) { minDiff = diff; closestIdx = ii }
+                }
+                onHoverIndexRef.current?.(s.id, closestIdx)
               }
             })
             .on('mouseleave', function () {
@@ -1324,6 +1365,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
               g.selectAll<SVGPathElement, unknown>('path.series-line:not([data-baseline="true"])')
                 .attr('opacity', hasBaseline ? 0.35 : 0.8)
                 .attr('stroke-width', 1.5)
+              crosshairGroup.selectAll('*').remove()
+              onHoverIndexRef.current?.(null, null)
               if (tooltip) tooltip.style.display = 'none'
             })
 
@@ -2010,10 +2053,24 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
   }, [channels, onChannelsChange])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full select-none">
       {/* Controls */}
-      <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 dark:border-gray-700 items-center">
-        {multiChannel ? (
+      <div className="flex flex-col border-b border-gray-100 dark:border-gray-700">
+      <div className="flex flex-wrap gap-3 p-3 items-center">
+        {/* ── Whole-plot mode buttons (always visible) ───────────────────── */}
+        {(['bestsplit', 'pacecdf'] as YMetric[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setYMetric(prev => prev === m ? 'cumulative' : m)}
+            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+              yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500'
+            }`}
+          >
+            {m === 'bestsplit' ? 'Best Split' : 'Pace CDF'}
+          </button>
+        ))}
+
+        {yMetric !== 'bestsplit' && yMetric !== 'pacecdf' && multiChannel ? (
           /* ── Multi-channel controls ──────────────────────────────────── */
           <>
             {/* Channel pills inline */}
@@ -2033,6 +2090,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 >
                   {METRIC_SHORT[ch.metric]}
                   <span className="ml-1 opacity-60 text-[10px]">{(ch.side ?? 'left') === 'left' ? '◂' : '▸'}</span>
+                  <span className="ml-0.5 opacity-50 text-[9px]">{isEditing ? '▲' : '▼'}</span>
                 </button>
               )
             })}
@@ -2105,34 +2163,13 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 ))}
               </div>
             )}
-            {channels!.some(ch => ch.metric === 'cumulative' || ch.metric === 'rolling') && xMetric === 'distance' && (athlete?.age || athlete?.dateOfBirth) && athlete?.sex && (
-              <>
-                <div className="flex items-center gap-1 ml-2">
-                  <input
-                    type="checkbox"
-                    id="wma-toggle-mc"
-                    checked={showWMA}
-                    onChange={(e) => setShowWMA(e.target.checked)}
-                    className="accent-green-500"
-                  />
-                  <label htmlFor="wma-toggle-mc" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
-                    WMA contour
-                  </label>
-                </div>
-                {showWMA && (
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
-                    {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag to adjust
-                  </span>
-                )}
-              </>
-            )}
           </>
-        ) : (
+        ) : yMetric !== 'bestsplit' && yMetric !== 'pacecdf' ? (
           /* ── Single-metric controls (legacy) ─────────────────────────── */
           <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 dark:text-gray-400">Y:</span>
-          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta', 'bestsplit', 'pacecdf'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as YMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
@@ -2140,12 +2177,14 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m === 'bestsplit' ? 'best split' : m === 'pacecdf' ? 'Pace CDF' : m}
+              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m}
             </button>
           ))}
         </div>
           </>
-        )}
+        ) : multiChannel ? (
+          <span className="text-xs text-gray-400 dark:text-gray-500 italic">Channel config not available in this mode</span>
+        ) : null}
 
         {/* ── Shared controls (X-axis, time mode) — hidden in best split and pacecdf modes ── */}
         {!isBestSplitMode && yMetric !== 'pacecdf' && (
@@ -2223,159 +2262,163 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               cumulative average pace
             </span>
           )}
-          {(yMetric === 'cumulative' || yMetric === 'rolling') && xMetric === 'distance' && athlete?.age && athlete?.sex && (
-          <>
-            <div className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                id="wma-toggle"
-                checked={showWMA}
-                onChange={(e) => setShowWMA(e.target.checked)}
-                className="accent-green-500"
-              />
-              <label htmlFor="wma-toggle" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
-                WMA contour
-              </label>
-            </div>
-            {showWMA && (
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-400 dark:text-gray-500">
-                  {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag the line to adjust
-                </span>
-              </div>
-            )}
           </>
         )}
-          </>
+
+        {/* ── WMA toggle — always last, far right ── */}
+        {!isBestSplitMode && yMetric !== 'pacecdf' && xMetric === 'distance' && (athlete?.age || athlete?.dateOfBirth) && athlete?.sex && (
+          (multiChannel && channels!.some(ch => ch.metric === 'cumulative' || ch.metric === 'rolling')) ||
+          (!multiChannel && (yMetric === 'cumulative' || yMetric === 'rolling'))
+        ) && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowWMA((v) => !v)}
+              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                showWMA
+                  ? 'bg-green-50 border-green-300 text-green-700'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500'
+              }`}
+              title={showWMA ? 'Hide WMA contour' : 'Show WMA contour'}
+            >
+              WMA contour
+            </button>
+            {showWMA && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag to adjust
+              </span>
+            )}
+          </div>
         )}
 
       </div>
 
-      {/* Plot */}
-      <div ref={containerRef} className="flex-1 relative min-h-0">
-        {/* Channel editing panel */}
-        {multiChannel && editingChannelIdx != null && channels![editingChannelIdx] && (() => {
-          const ch = channels![editingChannelIdx]
-          const chColor = CHANNEL_PALETTE[(ch.colorIndex ?? editingChannelIdx) % CHANNEL_PALETTE.length]
-          const chIsPace = ch.metric === 'cumulative' || ch.metric === 'rolling' || ch.metric === 'raw'
-          const chIsDelta = ch.metric === 'delta'
-          return (
-            <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 rounded-lg border shadow-lg"
-              style={{ borderColor: chColor }}>
-              {/* Metric */}
-              <select
-                value={ch.metric}
-                onChange={(e) => {
-                  if (!onChannelsChange) return
-                  const next = [...channels!]
-                  next[editingChannelIdx] = { ...ch, metric: e.target.value as SeriesMetric }
-                  onChannelsChange(next)
-                }}
-                className="text-xs border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
-                style={{ color: chColor }}
-              >
-                {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).map((m) => (
-                  <option key={m} value={m}>{METRIC_SHORT[m]}</option>
-                ))}
-              </select>
-              {/* Side toggle */}
+      {/* Inline channel editing accordion */}
+      {multiChannel && editingChannelIdx != null && channels![editingChannelIdx] && (() => {
+        const ch = channels![editingChannelIdx]
+        const chColor = CHANNEL_PALETTE[(ch.colorIndex ?? editingChannelIdx) % CHANNEL_PALETTE.length]
+        const chIsPace = ch.metric === 'cumulative' || ch.metric === 'rolling' || ch.metric === 'raw'
+        const chIsDelta = ch.metric === 'delta'
+        return (
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40"
+            style={{ borderLeftWidth: 3, borderLeftColor: chColor }}>
+            {/* Metric */}
+            <select
+              value={ch.metric}
+              onChange={(e) => {
+                if (!onChannelsChange) return
+                const next = [...channels!]
+                next[editingChannelIdx] = { ...ch, metric: e.target.value as SeriesMetric }
+                onChannelsChange(next)
+              }}
+              className="text-xs border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
+              style={{ color: chColor }}
+            >
+              {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).map((m) => (
+                <option key={m} value={m}>{METRIC_SHORT[m]}</option>
+              ))}
+            </select>
+            {/* Side toggle */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400">axis:</span>
+              {(['left', 'right'] as const).map((s) => {
+                const countOnSide = channels!.filter((c, i) => c.side === s && i !== editingChannelIdx).length
+                const disabled = countOnSide >= 2 && ch.side !== s
+                return (
+                <button
+                  key={s}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (!onChannelsChange || disabled) return
+                    const next = [...channels!]
+                    next[editingChannelIdx] = { ...ch, side: s }
+                    onChannelsChange(next)
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    ch.side === s
+                      ? 'bg-orange-500 text-white border-orange-500'
+                      : disabled
+                        ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
+                  }`}
+                >{s}</button>
+                )
+              })}
+            </div>
+            {/* Scale mode */}
+            {(chIsPace || chIsDelta) && (
               <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-500 dark:text-gray-400">axis:</span>
-                {(['left', 'right'] as const).map((s) => {
-                  const countOnSide = channels!.filter((c, i) => c.side === s && i !== editingChannelIdx).length
-                  const disabled = countOnSide >= 2 && ch.side !== s
-                  return (
+                <span className="text-xs text-gray-500 dark:text-gray-400">scale:</span>
+                {(['auto', '1min', '2min'] as const).map((mode) => (
                   <button
-                    key={s}
-                    disabled={disabled}
+                    key={mode}
                     onClick={() => {
-                      if (!onChannelsChange || disabled) return
+                      if (!onChannelsChange) return
                       const next = [...channels!]
-                      next[editingChannelIdx] = { ...ch, side: s }
+                      next[editingChannelIdx] = { ...ch, scaleMode: mode }
                       onChannelsChange(next)
                     }}
                     className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                      ch.side === s
+                      ch.scaleMode === mode
                         ? 'bg-orange-500 text-white border-orange-500'
-                        : disabled
-                          ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                          : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
+                        : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
                     }`}
-                  >{s}</button>
-                  )
-                })}
+                  >{mode === 'auto' ? 'auto' : mode === '1min' ? '±1m' : '±2m'}</button>
+                ))}
               </div>
-              {/* Scale mode */}
-              {(chIsPace || chIsDelta) && (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">scale:</span>
-                  {(['auto', '1min', '2min'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        if (!onChannelsChange) return
-                        const next = [...channels!]
-                        next[editingChannelIdx] = { ...ch, scaleMode: mode }
-                        onChannelsChange(next)
-                      }}
-                      className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                        ch.scaleMode === mode
-                          ? 'bg-orange-500 text-white border-orange-500'
-                          : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
-                      }`}
-                    >{mode === 'auto' ? 'auto' : mode === '1min' ? '±1m' : '±2m'}</button>
-                  ))}
-                </div>
-              )}
-              {/* Band position */}
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-500 dark:text-gray-400">band:</span>
-                <input
-                  type="number"
-                  min={0} max={100}
-                  value={ch.yTop}
-                  onChange={(e) => {
-                    if (!onChannelsChange) return
-                    const next = [...channels!]
-                    next[editingChannelIdx] = { ...ch, yTop: Number(e.target.value) }
-                    onChannelsChange(next)
-                  }}
-                  className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
-                />
-                <span className="text-xs text-gray-400 dark:text-gray-500">–</span>
-                <input
-                  type="number"
-                  min={0} max={100}
-                  value={ch.yBottom}
-                  onChange={(e) => {
-                    if (!onChannelsChange) return
-                    const next = [...channels!]
-                    next[editingChannelIdx] = { ...ch, yBottom: Number(e.target.value) }
-                    onChannelsChange(next)
-                  }}
-                  className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
-                />
-                <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
-              </div>
-              {/* Remove */}
-              {channels!.length > 1 && (
-                <button
-                  onClick={() => {
-                    if (!onChannelsChange) return
-                    onChannelsChange(channels!.filter((_, i) => i !== editingChannelIdx))
-                    setEditingChannelIdx(null)
-                  }}
-                  className="text-xs text-red-400 hover:text-red-600 ml-1"
-                >remove</button>
-              )}
-              {/* Close */}
-              <button
-                onClick={() => setEditingChannelIdx(null)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1 text-sm"
-              >✕</button>
+            )}
+            {/* Band position */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400">band:</span>
+              <input
+                type="number"
+                min={0} max={100}
+                value={ch.yTop}
+                onChange={(e) => {
+                  if (!onChannelsChange) return
+                  const next = [...channels!]
+                  next[editingChannelIdx] = { ...ch, yTop: Number(e.target.value) }
+                  onChannelsChange(next)
+                }}
+                className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-500">–</span>
+              <input
+                type="number"
+                min={0} max={100}
+                value={ch.yBottom}
+                onChange={(e) => {
+                  if (!onChannelsChange) return
+                  const next = [...channels!]
+                  next[editingChannelIdx] = { ...ch, yBottom: Number(e.target.value) }
+                  onChannelsChange(next)
+                }}
+                className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
+              />
+              <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
             </div>
-          )
-        })()}
+            {/* Remove */}
+            {channels!.length > 1 && (
+              <button
+                onClick={() => {
+                  if (!onChannelsChange) return
+                  onChannelsChange(channels!.filter((_, i) => i !== editingChannelIdx))
+                  setEditingChannelIdx(null)
+                }}
+                className="text-xs text-red-400 hover:text-red-600 ml-1"
+              >remove</button>
+            )}
+            {/* Close */}
+            <button
+              onClick={() => setEditingChannelIdx(null)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1 text-sm"
+            >✕</button>
+          </div>
+        )
+      })()}
+      </div>
+
+      {/* Plot */}
+      <div ref={containerRef} className="flex-1 relative min-h-0">
         {/* Hover tooltip */}
         <div
           ref={tooltipRef}

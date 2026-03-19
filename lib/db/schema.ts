@@ -1,5 +1,11 @@
 import Dexie, { Table } from 'dexie'
-import type { StravaActivity, ActivityStream, Athlete } from '../strava/types'
+import type { StravaActivity, ActivityStream, Athlete, WorkspaceState } from '../strava/types'
+
+export interface SavedLayout {
+  id: string
+  name: string
+  workspace: WorkspaceState
+}
 
 // ── E2E fixture types ─────────────────────────────────────────────────────────
 
@@ -16,6 +22,7 @@ export class StravaDB extends Dexie {
   activities!: Table<StravaActivity>
   streams!: Table<ActivityStream>
   athlete!: Table<Athlete>
+  savedLayouts!: Table<SavedLayout>
 
   constructor() {
     super('StravaViz')
@@ -31,6 +38,14 @@ export class StravaDB extends Dexie {
       activities: 'id, type, sport_type, start_date, distance, moving_time, average_speed, average_heartrate',
       streams: 'activityId',
       athlete: 'id',
+    })
+
+    // Version 11: add savedLayouts table for named layout presets.
+    this.version(11).stores({
+      activities: 'id, type, sport_type, start_date, distance, moving_time, average_speed, average_heartrate',
+      streams: 'activityId',
+      athlete: 'id',
+      savedLayouts: 'id, name',
     })
   }
 }

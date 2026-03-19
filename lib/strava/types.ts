@@ -67,7 +67,9 @@ export type MetricKey =
   | 'elapsed_time'
   | 'total_elevation_gain'
   | 'average_speed'
-  | 'average_pace' // computed: s/km
+  | 'average_pace' // computed: s/km from moving_time
+  | 'elapsed_speed' // computed: km/h from elapsed_time
+  | 'elapsed_pace'  // computed: s/km from elapsed_time
   | 'average_heartrate'
   | 'max_heartrate'
   | 'suffer_score'
@@ -80,7 +82,9 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
   elapsed_time: 'Elapsed Time',
   total_elevation_gain: 'Elevation Gain (m)',
   average_speed: 'Avg Speed (km/h)',
-  average_pace: 'Avg Pace (min/km)',
+  average_pace: 'Avg Pace (moving)',
+  elapsed_speed: 'Elapsed Speed (km/h)',
+  elapsed_pace: 'Avg Pace (elapsed)',
   average_heartrate: 'Avg Heart Rate',
   max_heartrate: 'Max Heart Rate',
   suffer_score: 'Suffer Score',
@@ -183,6 +187,10 @@ export function getMetricValue(activity: StravaActivity, metric: MetricKey): num
       return activity.average_speed * 3.6
     case 'average_pace':
       return activity.average_speed > 0 ? 1000 / activity.average_speed : 0
+    case 'elapsed_speed':
+      return activity.elapsed_time > 0 ? (activity.distance / activity.elapsed_time) * 3.6 : 0
+    case 'elapsed_pace':
+      return activity.elapsed_time > 0 && activity.distance > 0 ? activity.elapsed_time / (activity.distance / 1000) : 0
     case 'average_heartrate':
       return activity.average_heartrate ?? 0
     case 'max_heartrate':

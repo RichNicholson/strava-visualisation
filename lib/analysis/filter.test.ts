@@ -87,14 +87,15 @@ describe('applyFilter', () => {
     expect(result[0].id).toBe(2)
   })
 
-  it('filters by average pace', () => {
-    // 300 s/km = 5:00/km (average_speed 3.333 m/s)
-    // 360 s/km = 6:00/km (average_speed 2.778 m/s)
-    // 240 s/km = 4:00/km (average_speed 4.167 m/s)
+  it('filters by average pace (elapsed)', () => {
+    // elapsed pace = elapsed_time / (distance / 1000)
+    // 240 s/km — fast: 10 km in 2400 s
+    // 300 s/km — in range: 10 km in 3000 s
+    // 360 s/km — slow: 10 km in 3600 s
     const activities = [
-      makeActivity({ id: 1, average_speed: 4.167 }),  // 240 s/km — fast
-      makeActivity({ id: 2, average_speed: 3.333 }),  // 300 s/km — in range
-      makeActivity({ id: 3, average_speed: 2.778 }),  // 360 s/km — slow
+      makeActivity({ id: 1, distance: 10000, elapsed_time: 2400 }),  // 240 s/km — fast
+      makeActivity({ id: 2, distance: 10000, elapsed_time: 3000 }),  // 300 s/km — in range
+      makeActivity({ id: 3, distance: 10000, elapsed_time: 3600 }),  // 360 s/km — slow
     ]
     const result = applyFilter(activities, {
       ...noFilter,

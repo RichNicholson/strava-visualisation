@@ -116,4 +116,29 @@ describe('computeBestSplitCurve', () => {
       expect(pt.windowDist).toBeLessThanOrEqual(totalDist)
     }
   })
+
+  it('finds the fastest segment mid-run (slow start, fast middle, slow end)', () => {
+    // 4km run: first 2km slow (360 s/km), km 2-3 fast (240 s/km), last 1km slow (360 s/km)
+    const dist: number[] = []
+    const time: number[] = []
+    // 0-2000m: 36s/100m = 360 s/km
+    // 2000-3000m: 24s/100m = 240 s/km
+    // 3000-4000m: 36s/100m = 360 s/km
+    for (let i = 0; i <= 40; i++) {
+      dist.push(i * 100)
+      if (i <= 20) time.push(i * 36)
+      else if (i <= 30) time.push(20 * 36 + (i - 20) * 24)
+      else time.push(20 * 36 + 10 * 24 + (i - 30) * 36)
+    }
+    const curve = computeBestSplitCurve(dist, time)
+    expect(curve.length).toBeGreaterThan(0)
+    // Best 1km pace should be 240 s/km (from the fast middle km), not 360 s/km
+    const best1k = curve.find(p => p.windowDist >= 990 && p.windowDist <= 1010)
+    expect(best1k).toBeDefined()
+    expect(best1k!.bestPace).toBeCloseTo(240, 0)
+    // Curve must be monotonically non-increasing (pace can only get slower as window grows)
+    for (let i = 1; i < curve.length; i++) {
+      expect(curve[i].bestPace).toBeGreaterThanOrEqual(curve[i - 1].bestPace - 1)
+    }
+  })
 })

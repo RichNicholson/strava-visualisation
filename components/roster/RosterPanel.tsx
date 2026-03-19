@@ -20,14 +20,14 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
   const count = rosterActivities.length
 
   return (
-    <div className="mt-4 border-t border-gray-100 pt-4">
+    <div className="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Roster</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Roster</p>
         <div className="flex items-center gap-2">
           {count > 0 && onClearAll && (
             <button
               onClick={onClearAll}
-              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+              className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors"
             >
               Clear all
             </button>
@@ -36,7 +36,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
             className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
               count >= ROSTER_CAPACITY
                 ? 'bg-orange-100 text-orange-700'
-                : 'bg-gray-100 text-gray-500'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'
             }`}
           >
             {count} / {ROSTER_CAPACITY}
@@ -45,7 +45,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
       </div>
 
       {count === 0 ? (
-        <p className="text-xs text-gray-400 italic">
+        <p className="text-xs text-gray-400 dark:text-gray-500 italic">
           Add runs from the scatter plot or table view.
         </p>
       ) : (
@@ -59,10 +59,10 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                 onClick={() => onSetBaseline?.(isBaseline ? null : a.id)}
                 className={`flex items-center gap-1.5 group py-1 px-2 rounded transition-colors ${
                   isBaseline
-                    ? 'bg-orange-50 border border-orange-200'
+                    ? 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700'
                     : onSetBaseline
-                    ? 'cursor-pointer hover:bg-orange-50'
-                    : 'hover:bg-orange-50'
+                    ? 'cursor-pointer hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                    : 'hover:bg-orange-50 dark:hover:bg-orange-900/20'
                 } ${hiddenIds?.has(a.id) ? 'opacity-50' : ''}`}
               >
                 {colorMap && (
@@ -72,8 +72,8 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                   />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">{a.name}</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{a.name}</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
                     {(a.distance / 1000).toFixed(1)} km
                     {pace !== null && ` · ${formatPace(pace)}`}
                   </p>
@@ -82,7 +82,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                   <button
                     onClick={(e) => { e.stopPropagation(); onSetBaseline(baselineId === a.id ? null : a.id) }}
                     title={baselineId === a.id ? 'Clear baseline' : 'Set as delta baseline'}
-                    className={`flex-shrink-0 transition-colors ${baselineId === a.id ? 'text-indigo-600' : 'text-gray-300 hover:text-indigo-400'}`}
+                    className={`flex-shrink-0 transition-colors ${baselineId === a.id ? 'text-indigo-600' : 'text-gray-300 dark:text-gray-600 hover:text-indigo-400'}`}
                   >
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                       <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
@@ -93,7 +93,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                   <button
                     onClick={(e) => { e.stopPropagation(); onToggleHidden(a.id) }}
                     title={hiddenIds?.has(a.id) ? 'Show in series plot' : 'Hide from series plot'}
-                    className="flex-shrink-0 text-gray-300 hover:text-gray-500 transition-colors"
+                    className="flex-shrink-0 text-gray-300 dark:text-gray-600 hover:text-gray-500 transition-colors"
                   >
                     {hiddenIds?.has(a.id) ? (
                       // eye-off
@@ -117,7 +117,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   title="Open in Strava"
-                  className="flex-shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                  className="flex-shrink-0 text-gray-300 dark:text-gray-600 hover:text-orange-500 transition-colors"
                 >
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                     <path d="M3 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5.5a.5.5 0 0 0 0-1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5.5a.5.5 0 0 0 1 0V3a2 2 0 0 0-2-2H3z" />
@@ -128,7 +128,7 @@ export function RosterPanel({ rosterActivities, onRemove, onClearAll, colorMap, 
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove(a.id); }}
                   title="Remove from roster"
-                  className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors text-base leading-none"
+                  className="flex-shrink-0 text-gray-300 dark:text-gray-600 hover:text-red-400 transition-colors text-base leading-none"
                 >
                   ×
                 </button>

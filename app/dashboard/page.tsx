@@ -8,6 +8,11 @@ const TABLEAU10 = [
   '#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f',
   '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ac',
 ]
+// Brighter equivalents for dark mode — same hues, higher lightness/saturation
+const TABLEAU10_DARK = [
+  '#6baed6', '#ff9f3f', '#ff6b6b', '#4dcdc7', '#56c75a',
+  '#ffe642', '#cc72cc', '#ff85a0', '#d4a574', '#d5cfc9',
+]
 import { FilterPanel } from '../../components/filter/FilterPanel'
 import { ScatterPlot, DEFAULT_SCATTER_VIEW_STATE } from '../../components/plots/ScatterPlot'
 import type { ScatterViewState } from '../../components/plots/ScatterPlot'
@@ -24,6 +29,7 @@ import type { FilterState, StravaActivity, ViewType, LayoutMode, WorkspaceState,
 import { DEFAULT_WORKSPACE, DEFAULT_CHANNEL, defaultSlot } from '../../lib/strava/types'
 import { SettingsPanel } from './SettingsPanel'
 import { SyncDialog } from '../../components/ui/SyncDialog'
+import { LayoutPresets } from '../../components/ui/LayoutPresets'
 
 const DEFAULT_FILTER: FilterState = {
   dateRange: null,
@@ -55,6 +61,8 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(DEFAULT_WORKSPACE)
   const [showSettings, setShowSettings] = useState(false)
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
+  const [renameInputValue, setRenameInputValue] = useState('')
   const [roster, setRoster] = useState<Set<number>>(new Set())
   const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
   const [baselineActivityId, setBaselineActivityId] = useState<number | null>(null)
@@ -102,11 +110,19 @@ export default function Dashboard() {
     [allActivities, roster]
   )
 
+  const visibleRosterActivities = useMemo<StravaActivity[]>(
+    () => rosterActivities.filter((a) => !hiddenRoster.has(a.id)),
+    [rosterActivities, hiddenRoster]
+  )
+
   const colorMap = useMemo<Map<number, string>>(
-    () => new Map(
-      Array.from(colorAssignments.entries()).map(([id, idx]) => [id, TABLEAU10[idx]])
-    ),
-    [colorAssignments]
+    () => {
+      const palette = isDark ? TABLEAU10_DARK : TABLEAU10
+      return new Map(
+        Array.from(colorAssignments.entries()).map(([id, idx]) => [id, palette[idx]])
+      )
+    },
+    [colorAssignments, isDark]
   )
 
   const toggleRoster = useCallback((id: number) => {
@@ -219,9 +235,13 @@ export default function Dashboard() {
   const addWorkspaceTab = useCallback(() => {
     setWorkspaceState((prev) => {
       const newId = `tab-${Date.now()}`
+      const tabNumbers = prev.tabs
+        .map((t) => { const m = t.name.match(/^Tab (\d+)$/i); return m ? parseInt(m[1]) : 0 })
+        .filter((n) => n > 0)
+      const nextN = tabNumbers.length > 0 ? Math.max(...tabNumbers) + 1 : prev.tabs.length + 1
       const newTab: WorkspaceTab = {
         id: newId,
-        name: `Tab ${prev.tabs.length + 1}`,
+        name: `Tab ${nextN}`,
         layoutConfig: { mode: 'single', slots: [defaultSlot('scatter')] },
       }
       return { tabs: [...prev.tabs, newTab], activeTabId: newId }
@@ -244,6 +264,14 @@ export default function Dashboard() {
   // Switch to a different workspace tab
   const setActiveWorkspaceTab = useCallback((id: string) => {
     setWorkspaceState((prev) => ({ ...prev, activeTabId: id }))
+  }, [])
+
+  // Rename a workspace tab
+  const renameWorkspaceTab = useCallback((id: string, name: string) => {
+    setWorkspaceState((prev) => ({
+      ...prev,
+      tabs: prev.tabs.map((t) => t.id === id ? { ...t, name } : t),
+    }))
   }, [])
 
   // Derive which view types are currently visible (across all slots)
@@ -320,7 +348,7 @@ export default function Dashboard() {
       }
       return (
         <SeriesPlot
-          activities={rosterActivities.filter((a) => !hiddenRoster.has(a.id))}
+          activities={visibleRosterActivities}
           streams={streams}
           loading={streamsLoading}
           colorMap={colorMap}
@@ -376,7 +404,7 @@ export default function Dashboard() {
     if (viewType === 'longitudinal') {
       return (
         <LongitudinalPlot
-          activities={allActivities}
+          activities={filteredActivities}
           units={athlete?.units ?? 'metric'}
         />
       )
@@ -396,32 +424,61 @@ export default function Dashboard() {
         {/* Workspace tabs */}
         <div className="flex items-center gap-0.5">
           {workspaceState.tabs.map((tab) => (
-            <div key={tab.id} className="flex items-center">
+            <div key={tab.id} className="flex items-center group/tab">
               <button
                 onClick={() => setActiveWorkspaceTab(tab.id)}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors border ${
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium transition-colors border ${
                   tab.id === workspaceState.activeTabId
                     ? 'bg-orange-500 text-white border-orange-500'
                     : 'text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
-                } ${
-                  workspaceState.tabs.length === 1 ? 'rounded-lg' : 'rounded-l-lg'
-                }`}
+                } rounded-lg`}
               >
-                {tab.name}
+                {renamingTabId === tab.id ? (
+                  <input
+                    autoFocus
+                    value={renameInputValue}
+                    onChange={(e) => setRenameInputValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        renameWorkspaceTab(tab.id, renameInputValue.trim() || tab.name)
+                        setRenamingTabId(null)
+                      } else if (e.key === 'Escape') {
+                        setRenamingTabId(null)
+                      }
+                    }}
+                    onBlur={() => {
+                      renameWorkspaceTab(tab.id, renameInputValue.trim() || tab.name)
+                      setRenamingTabId(null)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-transparent outline-none w-20 text-sm"
+                  />
+                ) : (
+                  <span
+                    className="flex items-center gap-1 cursor-text"
+                    title="Double-click to rename"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      setRenamingTabId(tab.id)
+                      setRenameInputValue(tab.name)
+                    }}
+                  >
+                    {tab.name}
+                    <svg className="w-3 h-3 opacity-0 group-hover/tab:opacity-40 transition-opacity" viewBox="0 0 12 12" fill="currentColor">
+                      <path d="M9.5 1.5a1.5 1.5 0 0 1 1 2.56L4 10.56l-2.5.5.5-2.5L8.44 2a1.5 1.5 0 0 1 1.06-.5z"/>
+                    </svg>
+                  </span>
+                )}
+                {workspaceState.tabs.length > 1 && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); removeWorkspaceTab(tab.id) }}
+                    className="opacity-0 group-hover/tab:opacity-100 transition-opacity text-xs leading-none cursor-pointer hover:text-red-300 ml-0.5"
+                    title="Close tab"
+                  >
+                    ×
+                  </span>
+                )}
               </button>
-              {workspaceState.tabs.length > 1 && (
-                <button
-                  onClick={() => removeWorkspaceTab(tab.id)}
-                  className={`px-1.5 py-1.5 text-xs rounded-r-lg border-y border-r transition-colors ${
-                    tab.id === workspaceState.activeTabId
-                      ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'
-                      : 'text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-red-500'
-                  }`}
-                  title="Close tab"
-                >
-                  ×
-                </button>
-              )}
             </div>
           ))}
           <button
@@ -450,24 +507,12 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* In Single mode: view type selector (identical to the original tab strip) */}
-        {layoutConfig.mode === 'single' && (
-          <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-            {(['scatter', 'table', 'series', 'map', 'longitudinal'] as ViewType[]).map((viewType) => (
-              <button
-                key={viewType}
-                onClick={() => setSlotViewType(0, viewType)}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  layoutConfig.slots[0].viewType === viewType
-                    ? 'bg-orange-500 text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                }`}
-              >
-                {VIEW_LABELS[viewType]}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Layout presets */}
+        <LayoutPresets
+          currentWorkspace={workspaceState}
+          defaultName={activeTab.name}
+          onLoad={(ws) => setWorkspaceState(ws)}
+        />
 
         <div className="ml-auto flex items-center gap-3">
           {/* Dark mode toggle */}
@@ -569,9 +614,26 @@ export default function Dashboard() {
             </div>
           </main>
         ) : layoutConfig.mode === 'single' ? (
-          /* ── Single mode: one panel, no panel chrome ─────────────────── */
-          <main className="flex-1 min-w-0">
-            {renderPanelBody(layoutConfig.slots[0].viewType, 0)}
+          /* ── Single mode: one panel with in-tile view selector ─────────── */
+          <main className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex border-b border-gray-100 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-800">
+              {(['scatter', 'table', 'series', 'map', 'longitudinal'] as ViewType[]).map((viewType) => (
+                <button
+                  key={viewType}
+                  onClick={() => setSlotViewType(0, viewType)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-b-2 ${
+                    layoutConfig.slots[0].viewType === viewType
+                      ? 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {VIEW_LABELS[viewType]}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {renderPanelBody(layoutConfig.slots[0].viewType, 0)}
+            </div>
           </main>
         ) : (
           /* ── Double / Quad mode: multiple panels, each with its own tab strip ── */

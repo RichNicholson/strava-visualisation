@@ -45,9 +45,9 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
 
       // Dim only the tile layer pane — route overlay and markers are in separate panes
       // and are unaffected by this.
-      map.getPanes().tilePane.style.opacity = '0.45'
+      map.getPanes().tilePane.style.opacity = isDark ? '0.6' : '0.45'
       if (isDark) {
-        map.getPanes().tilePane.style.filter = 'invert(1) hue-rotate(180deg)'
+        map.getPanes().tilePane.style.filter = 'invert(1) hue-rotate(180deg) contrast(1.4) brightness(0.8) saturate(0.7)'
       }
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -60,7 +60,11 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
       setTimeout(() => { if (!cancelled) map.invalidateSize() }, 0)
 
       if (stream?.latlng && stream.latlng.length > 0) {
-        const line = L.polyline(stream.latlng, { color, weight: 3, opacity: 0.85 })
+        if (isDark) {
+          // Glow layer beneath the main line for contrast against the dark map
+          L.polyline(stream.latlng, { color, weight: 8, opacity: 0.25, interactive: false }).addTo(map)
+        }
+        const line = L.polyline(stream.latlng, { color, weight: isDark ? 4 : 3, opacity: isDark ? 1 : 0.85 })
         line.addTo(map)
         map.fitBounds(line.getBounds(), { padding: [24, 24] })
 
@@ -91,12 +95,12 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
     const latlng = stream.latlng[hoveredStreamIndex]
     if (!latlng) return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const marker = L.circleMarker(latlng, { radius: 7, color: '#fff', fillColor: '#3b82f6', fillOpacity: 1, weight: 2 }).addTo(map as any)
+    const marker = L.circleMarker(latlng, { radius: 7, color: '#fff', fillColor: color, fillOpacity: 1, weight: 2 }).addTo(map as any)
     hoverMarkerRef.current = marker
-  }, [hoveredStreamIndex, stream])
+  }, [hoveredStreamIndex, stream, color])
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col select-none">
       {/* Activity info bar */}
       <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
         <span className="font-medium text-gray-800 dark:text-gray-100 truncate max-w-xs">{activity.name}</span>

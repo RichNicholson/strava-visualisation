@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(pnpm exec:*)",
       "Bash(git:*)",
@@ -16,7 +17,9 @@
       "Bash(claude mcp:*)",
       "Bash(grep -iE '\\\\.\\(xlsx|csv|ods|xls\\)$')",
       "Bash(pnpm remove:*)",
-      "Bash(head -10 grep -n \"deltaScaleMode\\\\|deltaScale\\\\|±30\\\\|±1 min\" /home/rich/src/strava-visualisation/components/plots/SeriesPlot.tsx)"
+      "Bash(head -10 grep -n \"deltaScaleMode\\\\|deltaScale\\\\|±30\\\\|±1 min\" /home/rich/src/strava-visualisation/components/plots/SeriesPlot.tsx)",
+      "Bash(grep -r \"dark.*class\\\\|class.*selector\" /home/rich/src/strava-visualisation/node_modules/tailwindcss/*.css)",
+      "Bash(grep -r \"dark:bg\\\\|dark:text\\\\|dark:\" /home/rich/src/strava-visualisation/app /home/rich/src/strava-visualisation/components --include=*.tsx)"
     ]
   }
 }
