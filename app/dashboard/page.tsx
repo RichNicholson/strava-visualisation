@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useTheme } from '../../hooks/useTheme'
 
 // Matches d3.schemeTableau10 — stable colour palette for roster/series
 const TABLEAU10 = [
@@ -12,6 +13,7 @@ import { ScatterPlot, DEFAULT_SCATTER_VIEW_STATE } from '../../components/plots/
 import type { ScatterViewState } from '../../components/plots/ScatterPlot'
 import { SeriesPlot } from '../../components/plots/SeriesPlot'
 import { RouteMap } from '../../components/plots/RouteMap'
+import { LongitudinalPlot } from '../../components/plots/LongitudinalPlot'
 import { RosterPanel, ROSTER_CAPACITY } from '../../components/roster/RosterPanel'
 import { ActivityTable } from '../../components/table/ActivityTable'
 import { useAllActivities, useAthlete } from '../../hooks/useActivities'
@@ -40,6 +42,7 @@ const VIEW_LABELS: Record<ViewType, string> = {
   table: 'Table',
   series: 'Series',
   map: 'Map',
+  longitudinal: 'Trend',
 }
 
 const LAYOUT_LABELS = { single: 'Single', double: 'Double', quad: 'Quad' } as const
@@ -48,10 +51,10 @@ export default function Dashboard() {
   const allActivities = useAllActivities()
   const athlete = useAthlete()
   const { progress, isSyncing, startSync, clearProgress } = useStravaSync()
+  const { isDark, toggleTheme } = useTheme()
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(DEFAULT_WORKSPACE)
   const [showSettings, setShowSettings] = useState(false)
-  const [showWMA, setShowWMA] = useState(true)
   const [roster, setRoster] = useState<Set<number>>(new Set())
   const [hiddenRoster, setHiddenRoster] = useState<Set<number>>(new Set())
   const [baselineActivityId, setBaselineActivityId] = useState<number | null>(null)
@@ -272,12 +275,13 @@ export default function Dashboard() {
         <ScatterPlot
           activities={filteredActivities}
           athlete={athlete ?? null}
-          showWMA={showWMA}
           roster={roster}
           onToggleRoster={toggleRoster}
           colorMap={colorMap}
           viewState={scatterViewState}
           onViewStateChange={setScatterViewState}
+          units={athlete?.units ?? 'metric'}
+          isDark={isDark}
         />
       )
     }
@@ -287,6 +291,7 @@ export default function Dashboard() {
           activities={filteredActivities}
           roster={roster}
           onToggleRoster={toggleRoster}
+          units={athlete?.units ?? 'metric'}
         />
       )
     }
@@ -326,6 +331,8 @@ export default function Dashboard() {
           onHoverIndex={(activityId, streamIndex) =>
             setHoveredSeriesPoint(activityId != null && streamIndex != null ? { activityId, streamIndex } : null)
           }
+          units={athlete?.units ?? 'metric'}
+          isDark={isDark}
         />
       )
     }
@@ -360,10 +367,19 @@ export default function Dashboard() {
             loading={mapStreamLoading}
             color={mapActivityId != null ? colorMap.get(mapActivityId) : undefined}
             hoveredStreamIndex={hoveredSeriesPoint?.activityId === mapActivityId ? hoveredSeriesPoint.streamIndex : undefined}
+            isDark={isDark}
           />
         )
       }
       return null
+    }
+    if (viewType === 'longitudinal') {
+      return (
+        <LongitudinalPlot
+          activities={allActivities}
+          units={athlete?.units ?? 'metric'}
+        />
+      )
     }
     return null
   }
@@ -372,9 +388,9 @@ export default function Dashboard() {
   const isScatterVisible = layoutConfig.slots.some((s) => s.viewType === 'scatter')
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Top bar */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-4 flex-shrink-0">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center gap-4 flex-shrink-0">
         <h1 className="font-bold text-orange-500 text-lg">StravaViz</h1>
 
         {/* Workspace tabs */}
@@ -386,7 +402,7 @@ export default function Dashboard() {
                 className={`px-3 py-1.5 text-sm font-medium transition-colors border ${
                   tab.id === workspaceState.activeTabId
                     ? 'bg-orange-500 text-white border-orange-500'
-                    : 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                    : 'text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
                 } ${
                   workspaceState.tabs.length === 1 ? 'rounded-lg' : 'rounded-l-lg'
                 }`}
@@ -399,7 +415,7 @@ export default function Dashboard() {
                   className={`px-1.5 py-1.5 text-xs rounded-r-lg border-y border-r transition-colors ${
                     tab.id === workspaceState.activeTabId
                       ? 'bg-orange-500 text-white border-orange-500 hover:bg-orange-600'
-                      : 'text-gray-400 border-gray-200 hover:bg-gray-50 hover:text-red-500'
+                      : 'text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-red-500'
                   }`}
                   title="Close tab"
                 >
@@ -410,7 +426,7 @@ export default function Dashboard() {
           ))}
           <button
             onClick={addWorkspaceTab}
-            className="px-2 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            className="px-2 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title="Add new tab"
           >
             +
@@ -418,7 +434,7 @@ export default function Dashboard() {
         </div>
 
         {/* Layout mode switcher: Single | Double | Quad */}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
           {(['single', 'double', 'quad'] as const).map((mode) => (
             <button
               key={mode}
@@ -426,7 +442,7 @@ export default function Dashboard() {
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                 layoutConfig.mode === mode
                   ? 'bg-orange-500 text-white'
-                  : 'text-gray-600 hover:bg-gray-50'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
               }`}
             >
               {LAYOUT_LABELS[mode]}
@@ -436,15 +452,15 @@ export default function Dashboard() {
 
         {/* In Single mode: view type selector (identical to the original tab strip) */}
         {layoutConfig.mode === 'single' && (
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            {(['scatter', 'table', 'series', 'map'] as ViewType[]).map((viewType) => (
+          <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+            {(['scatter', 'table', 'series', 'map', 'longitudinal'] as ViewType[]).map((viewType) => (
               <button
                 key={viewType}
                 onClick={() => setSlotViewType(0, viewType)}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                   layoutConfig.slots[0].viewType === viewType
                     ? 'bg-orange-500 text-white'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
               >
                 {VIEW_LABELS[viewType]}
@@ -453,20 +469,24 @@ export default function Dashboard() {
           </div>
         )}
 
-        {isScatterVisible && (
-          <button
-            onClick={() => setShowWMA((v) => !v)}
-            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-              showWMA
-                ? 'bg-green-50 border-green-300 text-green-700'
-                : 'border-gray-200 text-gray-500'
-            }`}
-          >
-            WMA contours
-          </button>
-        )}
-
         <div className="ml-auto flex items-center gap-3">
+          {/* Dark mode toggle */}
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+              </svg>
+            )}
+          </button>
+
           {/* Sync status */}
           {progress?.phase === 'error' ? (
             progress.error === 'UNAUTHORIZED' ? (
@@ -477,7 +497,7 @@ export default function Dashboard() {
               <span className="text-sm text-red-500">{progress.error ?? 'Sync failed'}</span>
             )
           ) : isSyncing && progress ? (
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               {progress.phase === 'activities'
                 ? `Syncing... ${progress.activitiesFetched} activities`
                 : progress.phase === 'done'
@@ -497,7 +517,7 @@ export default function Dashboard() {
 
           <button
             onClick={() => setShowSettings((v) => !v)}
-            className="p-1.5 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title="Settings"
           >
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -514,7 +534,7 @@ export default function Dashboard() {
       {/* Main content */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Filter sidebar */}
-        <aside className="w-72 flex-shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4">
+        <aside className="w-72 flex-shrink-0 overflow-y-auto border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <FilterPanel
             filter={filter}
             onChange={setFilter}
@@ -538,7 +558,7 @@ export default function Dashboard() {
         {allActivities.length === 0 && !isSyncing ? (
           <main className="flex-1 min-w-0 flex items-center justify-center">
             <div className="text-center space-y-4">
-              <p className="text-gray-500">No activities yet. Click &quot;Sync Activities&quot; to load your Strava data.</p>
+              <p className="text-gray-500 dark:text-gray-400">No activities yet. Click &quot;Sync Activities&quot; to load your Strava data.</p>
               <button
                 onClick={(e) => startSync(e.shiftKey)}
                 className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition-colors"
@@ -565,18 +585,18 @@ export default function Dashboard() {
             {layoutConfig.slots.map((slot, slotIndex) => (
               <div
                 key={slotIndex}
-                className="flex flex-col min-h-0 bg-white rounded-lg border border-gray-200 overflow-hidden"
+                className="flex flex-col min-h-0 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden"
               >
                 {/* Per-panel view type tab strip */}
-                <div className="flex border-b border-gray-100 flex-shrink-0">
-                  {(['scatter', 'table', 'series', 'map'] as ViewType[]).map((viewType) => (
+                <div className="flex border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                  {(['scatter', 'table', 'series', 'map', 'longitudinal'] as ViewType[]).map((viewType) => (
                     <button
                       key={viewType}
                       onClick={() => setSlotViewType(slotIndex, viewType)}
                       className={`px-3 py-1.5 text-xs font-medium transition-colors border-b-2 ${
                         slot.viewType === viewType
-                          ? 'border-orange-500 text-orange-600 bg-orange-50'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                          ? 'border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
                       }`}
                     >
                       {VIEW_LABELS[viewType]}

@@ -39,6 +39,7 @@ export interface Athlete {
   sex?: 'M' | 'F'
   age?: number
   dateOfBirth?: string
+  units?: 'metric' | 'imperial'
   last_synced?: string
   access_token?: string
   refresh_token?: string
@@ -88,11 +89,11 @@ export const METRIC_LABELS: Record<MetricKey, string> = {
 
 // ── Layout types ─────────────────────────────────────────────────────────────
 
-export type ViewType = 'scatter' | 'table' | 'series' | 'map'
+export type ViewType = 'scatter' | 'table' | 'series' | 'map' | 'longitudinal'
 export type LayoutMode = 'single' | 'double' | 'quad'
 
 /** All metrics that can be plotted on the Series y-axis. */
-export type SeriesMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence' | 'delta'
+export type SeriesMetric = 'cumulative' | 'rolling' | 'raw' | 'heartrate' | 'elevation' | 'cadence' | 'delta' | 'bestsplit' | 'pacecdf'
 
 /**
  * One metric channel rendered in a Series slot.

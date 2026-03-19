@@ -7,6 +7,7 @@ import type { ActivityStream } from '../../lib/strava/types'
 import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
 import { computeDeltaSeries } from '../../lib/analysis/timeDelta'
 import { computeBestSplitCurve } from '../../lib/analysis/bestSplit'
+import { computePaceCDF } from '../../lib/analysis/paceCDF'
 import { metresToDisplayUnit, paceToDisplayUnit, distanceUnit, paceUnit, type UnitSystem } from '../../lib/format'
 
 // Keep YMetric as a local alias for SeriesMetric so all existing references continue to work
@@ -26,6 +27,7 @@ interface SeriesPlotProps {
   /** Fired with (activityId, streamIndex) on crosshair hover; (null, null) on leave. */
   onHoverIndex?: (activityId: number | null, streamIndex: number | null) => void
   units?: UnitSystem
+  isDark?: boolean
 }
 
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
@@ -39,6 +41,7 @@ const Y_LABELS: Record<YMetric, string> = {
   cadence: 'Cadence (spm)',
   delta: 'Time delta',
   bestsplit: 'Best split pace',
+  pacecdf: 'Cumulative % of time',
 }
 
 const METRIC_SHORT: Record<YMetric, string> = {
@@ -50,6 +53,7 @@ const METRIC_SHORT: Record<YMetric, string> = {
   cadence: 'Cadence',
   delta: 'Time delta',
   bestsplit: 'Best split',
+  pacecdf: 'Pace CDF',
 }
 
 // Per-channel axis colours (orange, blue, purple, green)
@@ -191,7 +195,7 @@ function orderChannelsForStack(channels: Channel[]): Channel[] {
   ]
 }
 
-export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange, onHoverIndex, units = 'metric' }: SeriesPlotProps) {
+export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange, onHoverIndex, units = 'metric', isDark = false }: SeriesPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -206,6 +210,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   const [timeMode, setTimeMode] = useState<'moving' | 'elapsed'>('moving')
   const [yViewDomain, setYViewDomain] = useState<[number, number] | null>(null)
   const [yScaleMode, setYScaleMode] = useState<'auto' | '1min' | '2min'>('auto')
+  const [deltaScaleMode, setDeltaScaleMode] = useState<'auto' | '30s' | '1min' | '2min' | '5min'>('auto')
   const [showWMA, setShowWMA] = useState(true)
   // null = not yet seeded; on first render with pace data we compute from median
   const [ageGradePercent, setAgeGradePercent] = useState<number | null>(null)
@@ -287,12 +292,151 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     const height = container.clientHeight
     svg.attr('width', width).attr('height', height)
 
+    const gridColor = isDark ? '#374151' : '#e5e7eb'
+    const labelColor = isDark ? '#9ca3af' : '#6b7280'
+
     // ── Helper: build moving-time or elapsed-time array from a stream ──────
     function getEffectiveTime(stream: ActivityStream): number[] | undefined {
       if (!stream.time) return undefined
       return timeMode === 'moving'
         ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
         : stream.time
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Pace CDF rendering path
+    // ═══════════════════════════════════════════════════════════════════════
+    if (yMetric === 'pacecdf') {
+      const innerW = width - MARGIN.left - MARGIN.right
+      const innerH = height - MARGIN.top - MARGIN.bottom
+      const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
+      const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
+
+      interface CdfSeries {
+        id: number
+        name: string
+        points: { pace: number; cumulativePercent: number }[]
+      }
+      const cdfSeries: CdfSeries[] = []
+
+      activities.forEach((activity) => {
+        const stream = streams.get(activity.id)
+        if (!stream?.velocity_smooth || !stream.time) return
+        const pts = computePaceCDF(stream.velocity_smooth, stream.time)
+        if (pts.length > 0) cdfSeries.push({ id: activity.id, name: activity.name, points: pts })
+      })
+
+      if (cdfSeries.length === 0) return
+
+      const allPaces = cdfSeries.flatMap((s) => s.points.map((p) => p.pace))
+      const paceMin = d3.min(allPaces)!
+      const paceMax = d3.max(allPaces)!
+      // x-axis: left = slowest (paceMax), right = fastest (paceMin)
+      const xScale = d3.scaleLinear().domain([paceMax * 1.02, paceMin * 0.98]).range([0, innerW])
+      const yScale = d3.scaleLinear().domain([0, 100]).range([innerH, 0])
+
+      g.append('g')
+        .attr('class', 'grid-x')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xScale).ticks(10).tickSize(-innerH).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
+      g.append('g')
+        .call(d3.axisLeft(yScale).ticks(10).tickSize(-innerW).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
+
+      const xFmtPace = (d: d3.NumberValue) => {
+        const s = paceToDisplayUnit(Number(d), units)
+        return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+      }
+      g.append('g')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xScale).ticks(10).tickFormat(xFmtPace as never))
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
+          ax.append('text')
+            .attr('x', innerW / 2).attr('y', 40)
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text(`Pace (${paceUnit(units)})`)
+        })
+      g.append('g')
+        .call(d3.axisLeft(yScale).ticks(10).tickFormat((d) => `${d}%`))
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
+          ax.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('x', -innerH / 2).attr('y', -55)
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text('Cumulative % of time')
+        })
+
+      const lineGen = d3
+        .line<{ pace: number; cumulativePercent: number }>()
+        .x((d) => xScale(d.pace))
+        .y((d) => yScale(d.cumulativePercent))
+        .curve(d3.curveCatmullRom)
+
+      const tooltipEl = tooltipRef.current
+
+      cdfSeries.forEach((s, i) => {
+        const color = colorMap?.get(s.id) ?? colorScale(String(i))
+
+        // Wide invisible hit area
+        g.append('path')
+          .datum(s.points)
+          .attr('fill', 'none')
+          .attr('stroke', 'transparent')
+          .attr('stroke-width', 12)
+          .attr('d', lineGen)
+          .style('cursor', 'pointer')
+          .on('mouseenter', function () {
+            g.selectAll<SVGPathElement, unknown>('path.cdf-line')
+              .attr('opacity', 0.2).attr('stroke-width', 1.5)
+            g.selectAll<SVGPathElement, unknown>('path.cdf-line')
+              .filter((_, j) => j === i)
+              .attr('opacity', 1).attr('stroke-width', 3)
+            if (tooltipEl) {
+              tooltipEl.style.display = 'block'
+              tooltipEl.style.borderColor = color
+              tooltipEl.textContent = s.name
+            }
+          })
+          .on('mousemove', function (event) {
+            if (tooltipEl) {
+              const [mx] = d3.pointer(event, g.node()!)
+              const paceAtCursor = xScale.invert(mx)
+              const closest = s.points.reduce((best, p) =>
+                Math.abs(p.pace - paceAtCursor) < Math.abs(best.pace - paceAtCursor) ? p : best
+              )
+              const paceDisplay = paceToDisplayUnit(closest.pace, units)
+              const paceStr = `${Math.floor(paceDisplay / 60)}:${String(Math.round(paceDisplay % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
+              tooltipEl.innerHTML = `<strong>${s.name}</strong><br/>${paceStr}<br/>${closest.cumulativePercent.toFixed(1)}% of time`
+              const [cmx, cmy] = d3.pointer(event, containerRef.current!)
+              tooltipEl.style.left = `${cmx + 14}px`
+              tooltipEl.style.top = `${cmy - 10}px`
+            }
+          })
+          .on('mouseleave', function () {
+            g.selectAll<SVGPathElement, unknown>('path.cdf-line')
+              .attr('opacity', 0.8).attr('stroke-width', 1.5)
+            if (tooltipEl) tooltipEl.style.display = 'none'
+          })
+
+        g.append('path')
+          .datum(s.points)
+          .attr('class', 'cdf-line')
+          .attr('fill', 'none')
+          .attr('stroke', color)
+          .attr('stroke-width', 1.5)
+          .attr('opacity', 0.8)
+          .style('pointer-events', 'none')
+          .attr('d', lineGen)
+      })
+
+      return
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -315,7 +459,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         // Prompt — no baseline designated yet
         g.append('text')
           .attr('x', innerW / 2).attr('y', innerH / 2)
-          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .attr('text-anchor', 'middle').attr('fill', labelColor).attr('font-size', '13px')
           .text('Δ delta mode — select a baseline in the roster ★')
         return
       }
@@ -334,7 +478,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       if (baselineXArr.length < 2) {
         g.append('text')
           .attr('x', innerW / 2).attr('y', innerH / 2)
-          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .attr('text-anchor', 'middle').attr('fill', labelColor).attr('font-size', '13px')
           .text('Baseline stream has insufficient data')
         return
       }
@@ -379,8 +523,15 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       const minDelta = allDeltas.length > 0 ? d3.min(allDeltas)! : -60
       const maxDelta = allDeltas.length > 0 ? d3.max(allDeltas)! : 60
       const pad = Math.max(5, (maxDelta - minDelta) * 0.1)
+      let yDeltaDomain: [number, number]
+      if (deltaScaleMode === 'auto') {
+        yDeltaDomain = [minDelta - pad, maxDelta + pad]
+      } else {
+        const halfWindow = deltaScaleMode === '30s' ? 30 : deltaScaleMode === '1min' ? 60 : deltaScaleMode === '2min' ? 120 : 300
+        yDeltaDomain = [-halfWindow, halfWindow]
+      }
       const yDeltaScale = d3.scaleLinear()
-        .domain([minDelta - pad, maxDelta + pad])
+        .domain(yDeltaDomain)
         .range([innerH, 0])
         .nice()
       yScaleRef.current = yDeltaScale
@@ -390,10 +541,10 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .attr('class', 'grid-x')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xDeltaScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
-        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
       g.append('g')
         .call(d3.axisLeft(yDeltaScale).ticks(8).tickSize(-innerW).tickFormat(() => ''))
-        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
       // Zero reference line
       g.append('line')
@@ -413,22 +564,28 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       g.append('g')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xDeltaScale).ticks(16).tickFormat(xFmtDelta as never))
-        .call((ax) =>
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
           ax.append('text')
             .attr('x', innerW / 2).attr('y', 40)
-            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
             .text(xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time')
-        )
+        })
       const yDeltaLabel = xMetric === 'distance' ? 'Time delta (s)' : 'Distance delta (m)'
       g.append('g')
         .call(d3.axisLeft(yDeltaScale).ticks(8))
-        .call((ax) =>
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
           ax.append('text')
             .attr('transform', 'rotate(-90)')
             .attr('x', -innerH / 2).attr('y', -55)
-            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
             .text(yDeltaLabel)
-        )
+        })
 
       // Delta lines
       const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
@@ -522,7 +679,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       if (splitSeries.length === 0) {
         g.append('text')
           .attr('x', innerW / 2).attr('y', innerH / 2)
-          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .attr('text-anchor', 'middle').attr('fill', labelColor).attr('font-size', '13px')
           .text('No stream data available for best split computation')
         return
       }
@@ -547,22 +704,25 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .attr('class', 'grid-x')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
-        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
       g.append('g')
         .call(d3.axisLeft(yScale).ticks(12).tickSize(-innerW).tickFormat(() => ''))
-        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
       // X-axis labels (window distance)
       const xFmtBs = (d: d3.NumberValue) => `${metresToDisplayUnit(Number(d), units).toFixed(1)}`
       g.append('g')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xScale).ticks(16).tickFormat(xFmtBs as never))
-        .call((ax) =>
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
           ax.append('text')
             .attr('x', innerW / 2).attr('y', 40)
-            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
             .text(`Window size (${distanceUnit(units)})`)
-        )
+        })
 
       // Y-axis labels (pace)
       const yFmtBs = (d: d3.NumberValue) => {
@@ -571,13 +731,16 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       }
       g.append('g')
         .call(d3.axisLeft(yScale).ticks(12).tickFormat(yFmtBs as never))
-        .call((ax) =>
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
           ax.append('text')
             .attr('transform', 'rotate(-90)')
             .attr('x', -innerH / 2).attr('y', -55)
-            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
             .text(`Best split pace (${paceUnit(units)})`)
-        )
+        })
 
       const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
 
@@ -698,7 +861,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .attr('class', 'grid-x')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
-        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
       const xLabel = xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time'
       const xFmtFn = xMetric === 'distance'
@@ -712,12 +875,15 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       g.append('g')
         .attr('transform', `translate(0,${innerH})`)
         .call(d3.axisBottom(xScale).ticks(16).tickFormat(xFmtFn as never))
-        .call((ax) =>
+        .call((ax) => {
+          ax.selectAll('text').attr('fill', labelColor)
+          ax.select('.domain').attr('stroke', labelColor)
+          ax.selectAll('line').attr('stroke', labelColor)
           ax.append('text')
             .attr('x', innerW / 2).attr('y', 40)
-            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
             .text(xLabel)
-        )
+        })
 
       const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
       const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
@@ -740,7 +906,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           if (!baselineStream || !baselineId) {
             g.append('text')
               .attr('x', innerW / 2).attr('y', bandTopPx + bandHeight / 2)
-              .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+              .attr('text-anchor', 'middle').attr('fill', labelColor).attr('font-size', '13px')
               .text('Δ delta — select a baseline in the roster ★')
             return
           }
@@ -872,7 +1038,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           // Horizontal grid lines within the band
           g.append('g')
             .call(d3.axisLeft(channelYScale).ticks(nTicks).tickSize(-innerW).tickFormat(() => ''))
-            .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb').attr('opacity', 0.5) })
+            .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor).attr('opacity', 0.5) })
 
           // Zero reference line
           g.append('line')
@@ -1107,7 +1273,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         // Horizontal grid lines within the band
         g.append('g')
           .call(d3.axisLeft(channelYScale).ticks(nTicks).tickSize(-innerW).tickFormat(() => ''))
-          .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb').attr('opacity', 0.5) })
+          .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor).attr('opacity', 0.5) })
 
         // Line generator for this channel
         const lineGen = d3.line<ChPoint>()
@@ -1446,12 +1612,12 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
       .attr('class', 'grid-x')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
-      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
     // Horizontal grid lines
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(12).tickSize(-innerW).tickFormat(() => ''))
-      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
     // Axes
     const xLabel = xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time'
@@ -1466,12 +1632,15 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(xScale).ticks(16).tickFormat(xFmtFn as never))
-      .call((ax) =>
+      .call((ax) => {
+        ax.selectAll('text').attr('fill', labelColor)
+        ax.select('.domain').attr('stroke', labelColor)
+        ax.selectAll('line').attr('stroke', labelColor)
         ax.append('text')
           .attr('x', innerW / 2).attr('y', 40)
-          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+          .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
           .text(xLabel)
-      )
+      })
 
     const yFmtFn = isPace
       ? (d: d3.NumberValue) => {
@@ -1482,16 +1651,19 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(12).tickFormat(yFmtFn as never))
-      .call((ax) =>
+      .call((ax) => {
+        ax.selectAll('text').attr('fill', labelColor)
+        ax.select('.domain').attr('stroke', labelColor)
+        ax.selectAll('line').attr('stroke', labelColor)
         ax.append('text')
           .attr('transform', 'rotate(-90)')
           .attr('x', -innerH / 2).attr('y', -55)
-          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+          .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
           .text(isPace
             ? (units === 'imperial' ? Y_LABELS[yMetric].replace('min/km', 'min/mi') : Y_LABELS[yMetric])
             : Y_LABELS[yMetric]
           )
-      )
+      })
 
     // Line generator — no smoothing, straight point-to-point
     // For pace metrics, skip points that exceed the boundary (leave gap; × markers shown instead)
@@ -1594,7 +1766,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             crosshairGroup.append('text')
               .attr('x', labelX).attr('y', labelY)
               .attr('text-anchor', labelAnchor)
-              .attr('font-size', '11px').attr('fill', '#374151').attr('font-weight', '500')
+              .attr('font-size', '11px').attr('fill', labelColor).attr('font-weight', '500')
               .text(`${xFmt} · ${yFmt}`)
           }
         })
@@ -1748,7 +1920,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         }
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, isBestSplitMode, channels, units])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, deltaScaleMode, baselineId, multiChannel, isBestSplitMode, channels, units, isDark])
 
   // Handle drag events for WMA contour
   useEffect(() => {
@@ -1840,7 +2012,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
   return (
     <div className="flex flex-col h-full">
       {/* Controls */}
-      <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 items-center">
+      <div className="flex flex-wrap gap-3 p-3 border-b border-gray-100 dark:border-gray-700 items-center">
         {multiChannel ? (
           /* ── Multi-channel controls ──────────────────────────────────── */
           <>
@@ -1900,7 +2072,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                     : nextChannels.map(ch => ({ ...ch, yTop: 0, yBottom: 100 }))
                   onChannelsChange(updated)
                 }}
-                className="px-2 py-0.5 text-xs rounded border border-dashed border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500 transition-colors"
+                className="px-2 py-0.5 text-xs rounded border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors"
                 title="Add channel"
               >+ Add</button>
             )}
@@ -1927,7 +2099,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                     className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                       channelLayout === mode
                         ? 'bg-orange-500 text-white border-orange-500'
-                        : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500'
+                        : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500'
                     }`}
                   >{mode}</button>
                 ))}
@@ -1943,12 +2115,12 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                     onChange={(e) => setShowWMA(e.target.checked)}
                     className="accent-green-500"
                   />
-                  <label htmlFor="wma-toggle-mc" className="text-xs text-gray-500 cursor-pointer">
+                  <label htmlFor="wma-toggle-mc" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
                     WMA contour
                   </label>
                 </div>
                 {showWMA && (
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
                     {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag to adjust
                   </span>
                 )}
@@ -1959,33 +2131,33 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           /* ── Single-metric controls (legacy) ─────────────────────────── */
           <>
         <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">Y:</span>
-          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta', 'bestsplit'] as YMetric[]).map((m) => (
+          <span className="text-xs text-gray-500 dark:text-gray-400">Y:</span>
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta', 'bestsplit', 'pacecdf'] as YMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m === 'bestsplit' ? 'best split' : m}
+              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m === 'bestsplit' ? 'best split' : m === 'pacecdf' ? 'Pace CDF' : m}
             </button>
           ))}
         </div>
           </>
         )}
 
-        {/* ── Shared controls (X-axis, time mode) — hidden in best split mode ── */}
-        {!isBestSplitMode && (
+        {/* ── Shared controls (X-axis, time mode) — hidden in best split and pacecdf modes ── */}
+        {!isBestSplitMode && yMetric !== 'pacecdf' && (
           <>
         <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">X:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">X:</span>
           {(['distance', 'time'] as XMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setXMetric(m)}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                xMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                xMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
               }`}
             >
               {m}
@@ -1993,13 +2165,13 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">time:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">time:</span>
           {(['moving', 'elapsed'] as const).map((m) => (
             <button
               key={m}
               onClick={() => setTimeMode(m)}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                timeMode === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
+                timeMode === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
               }`}
             >
               {m}
@@ -2012,25 +2184,42 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         {!multiChannel && !isBestSplitMode && (
           /* ── Single-metric-only controls (scale, WMA) ─────────────────── */
           <>
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">scale:</span>
-          {(['auto', '1min', '2min'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => {
-                if (mode === 'auto') setYViewDomain(null)
-                setYScaleMode(mode)
-              }}
-              className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                yScaleMode === mode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500 hover:border-orange-400 hover:text-orange-500'
-              }`}
-            >
-              {mode === 'auto' ? 'auto' : mode === '1min' ? '1 min' : '2 min'}
-            </button>
-          ))}
-        </div>
+        {isDeltaMode ? (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">scale:</span>
+            {(['auto', '30s', '1min', '2min', '5min'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setDeltaScaleMode(mode)}
+                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                  deltaScaleMode === mode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500'
+                }`}
+              >
+                {mode === 'auto' ? 'auto' : mode === '30s' ? '±30 s' : mode === '1min' ? '±1 min' : mode === '2min' ? '±2 min' : '±5 min'}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">scale:</span>
+            {(['auto', '1min', '2min'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => {
+                  if (mode === 'auto') setYViewDomain(null)
+                  setYScaleMode(mode)
+                }}
+                className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                  yScaleMode === mode ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500'
+                }`}
+              >
+                {mode === 'auto' ? 'auto' : mode === '1min' ? '1 min' : '2 min'}
+              </button>
+            ))}
+          </div>
+        )}
           {yMetric === 'cumulative' && (
-            <span className="text-xs text-gray-400 ml-1">
+            <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">
               cumulative average pace
             </span>
           )}
@@ -2044,13 +2233,13 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 onChange={(e) => setShowWMA(e.target.checked)}
                 className="accent-green-500"
               />
-              <label htmlFor="wma-toggle" className="text-xs text-gray-500 cursor-pointer">
+              <label htmlFor="wma-toggle" className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
                 WMA contour
               </label>
             </div>
             {showWMA && (
               <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-gray-400 dark:text-gray-500">
                   {(ageGradePercent ?? medianAgeGrade ?? 70).toFixed(1)}% — drag the line to adjust
                 </span>
               </div>
@@ -2071,7 +2260,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           const chIsPace = ch.metric === 'cumulative' || ch.metric === 'rolling' || ch.metric === 'raw'
           const chIsDelta = ch.metric === 'delta'
           return (
-            <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3 py-2 bg-white rounded-lg border shadow-lg"
+            <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 rounded-lg border shadow-lg"
               style={{ borderColor: chColor }}>
               {/* Metric */}
               <select
@@ -2082,7 +2271,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                   next[editingChannelIdx] = { ...ch, metric: e.target.value as SeriesMetric }
                   onChannelsChange(next)
                 }}
-                className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+                className="text-xs border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
                 style={{ color: chColor }}
               >
                 {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).map((m) => (
@@ -2091,7 +2280,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               </select>
               {/* Side toggle */}
               <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-500">axis:</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">axis:</span>
                 {(['left', 'right'] as const).map((s) => {
                   const countOnSide = channels!.filter((c, i) => c.side === s && i !== editingChannelIdx).length
                   const disabled = countOnSide >= 2 && ch.side !== s
@@ -2109,8 +2298,8 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                       ch.side === s
                         ? 'bg-orange-500 text-white border-orange-500'
                         : disabled
-                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                          : 'border-gray-300 text-gray-500 hover:border-orange-400'
+                          ? 'border-gray-200 dark:border-gray-700 text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                          : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
                     }`}
                   >{s}</button>
                   )
@@ -2119,7 +2308,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               {/* Scale mode */}
               {(chIsPace || chIsDelta) && (
                 <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-500">scale:</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">scale:</span>
                   {(['auto', '1min', '2min'] as const).map((mode) => (
                     <button
                       key={mode}
@@ -2132,7 +2321,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                       className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                         ch.scaleMode === mode
                           ? 'bg-orange-500 text-white border-orange-500'
-                          : 'border-gray-300 text-gray-500 hover:border-orange-400'
+                          : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400'
                       }`}
                     >{mode === 'auto' ? 'auto' : mode === '1min' ? '±1m' : '±2m'}</button>
                   ))}
@@ -2140,7 +2329,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               )}
               {/* Band position */}
               <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-500">band:</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">band:</span>
                 <input
                   type="number"
                   min={0} max={100}
@@ -2151,9 +2340,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                     next[editingChannelIdx] = { ...ch, yTop: Number(e.target.value) }
                     onChannelsChange(next)
                   }}
-                  className="w-12 text-xs border border-gray-200 rounded px-1 py-0.5 text-center"
+                  className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
                 />
-                <span className="text-xs text-gray-400">–</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">–</span>
                 <input
                   type="number"
                   min={0} max={100}
@@ -2164,9 +2353,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                     next[editingChannelIdx] = { ...ch, yBottom: Number(e.target.value) }
                     onChannelsChange(next)
                   }}
-                  className="w-12 text-xs border border-gray-200 rounded px-1 py-0.5 text-center"
+                  className="w-12 text-xs border border-gray-200 dark:border-gray-600 rounded px-1 py-0.5 text-center bg-white dark:bg-gray-700 dark:text-gray-200"
                 />
-                <span className="text-xs text-gray-400">%</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">%</span>
               </div>
               {/* Remove */}
               {channels!.length > 1 && (
@@ -2182,7 +2371,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               {/* Close */}
               <button
                 onClick={() => setEditingChannelIdx(null)}
-                className="text-gray-400 hover:text-gray-600 ml-1 text-sm"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1 text-sm"
               >✕</button>
             </div>
           )
@@ -2191,21 +2380,21 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         <div
           ref={tooltipRef}
           style={{ display: 'none' }}
-          className="pointer-events-none absolute z-20 bg-white text-xs text-gray-700 font-medium px-2 py-1 rounded shadow border"
+          className="pointer-events-none absolute z-20 bg-white dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-200 font-medium px-2 py-1 rounded shadow border dark:border-gray-600"
         />
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-            <span className="text-gray-500 text-sm">Loading stream data...</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 z-10">
+            <span className="text-gray-500 dark:text-gray-400 text-sm">Loading stream data...</span>
           </div>
         )}
         <svg ref={svgRef} className="w-full h-full" />
         {activities.length > 0 && streams.size === 0 && !loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white z-10 text-gray-400 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 z-10 text-gray-400 dark:text-gray-500 text-sm">
             Stream data not yet loaded — sync activities first
           </div>
         )}
         {activities.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white z-10 text-gray-400 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-800 z-10 text-gray-400 dark:text-gray-500 text-sm">
             Add runs to the roster to compare them here
           </div>
         )}

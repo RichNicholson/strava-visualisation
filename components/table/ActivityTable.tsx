@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { StravaActivity } from '../../lib/strava/types'
-import { formatPace } from '../../lib/analysis/bestSplit'
+import { formatDistance, formatPace, paceUnit, type UnitSystem } from '../../lib/format'
 import { ROSTER_CAPACITY } from '../roster/RosterPanel'
 
 type SortCol = 'date' | 'name' | 'distance' | 'pace' | 'elevation' | 'hr'
@@ -12,13 +12,14 @@ interface ActivityTableProps {
   activities: StravaActivity[]
   roster: Set<number>
   onToggleRoster: (id: number) => void
+  units?: UnitSystem
 }
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTableProps) {
+export function ActivityTable({ activities, roster, onToggleRoster, units = 'metric' }: ActivityTableProps) {
   const [sort, setSort] = useState<{ col: SortCol; dir: SortDir }>({ col: 'date', dir: 'desc' })
   const [nameFilter, setNameFilter] = useState('')
 
@@ -93,8 +94,8 @@ export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTa
               <th className="px-3 py-2.5 w-8" />
               <SortTh col="date"      label="Date"      className="w-28" />
               <SortTh col="name"      label="Name"      className="w-64" />
-              <SortTh col="distance"  label="Distance"  className="w-28 text-right" />
-              <SortTh col="pace"      label="Avg Pace"  className="w-28 text-right" />
+              <SortTh col="distance"  label={`Distance`}  className="w-28 text-right" />
+              <SortTh col="pace"      label={`Avg Pace`}  className="w-28 text-right" />
               <SortTh col="elevation" label="Elev (m)"  className="w-24 text-right" />
               {hasHR && <SortTh col="hr" label="Avg HR" className="w-20 text-right" />}
             </tr>
@@ -141,11 +142,11 @@ export function ActivityTable({ activities, roster, onToggleRoster }: ActivityTa
                   </td>
 
                   <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-right">
-                    {(a.distance / 1000).toFixed(2)} km
+                    {formatDistance(a.distance, units)}
                   </td>
 
                   <td className="px-3 py-2 text-gray-600 whitespace-nowrap font-mono text-xs text-right">
-                    {pace !== null ? formatPace(pace) : '—'}
+                    {pace !== null ? formatPace(pace, units) : '—'}
                   </td>
 
                   <td className="px-3 py-2 text-gray-600 text-right">

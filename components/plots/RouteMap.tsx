@@ -10,9 +10,10 @@ interface RouteMapProps {
   loading?: boolean
   color?: string
   hoveredStreamIndex?: number | null
+  isDark?: boolean
 }
 
-export function RouteMap({ activity, stream, loading, color = '#f97316', hoveredStreamIndex }: RouteMapProps) {
+export function RouteMap({ activity, stream, loading, color = '#f97316', hoveredStreamIndex, isDark = false }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Store map instance in a ref to clean up on unmount or activity change
   const mapRef = useRef<{ remove: () => void } | null>(null)
@@ -45,6 +46,9 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
       // Dim only the tile layer pane — route overlay and markers are in separate panes
       // and are unaffected by this.
       map.getPanes().tilePane.style.opacity = '0.45'
+      if (isDark) {
+        map.getPanes().tilePane.style.filter = 'invert(1) hue-rotate(180deg)'
+      }
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -75,7 +79,7 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [activity.id, stream])
+  }, [activity.id, stream, isDark])
 
   // Add/remove the hover crosshair marker whenever hoveredStreamIndex changes
   useEffect(() => {
@@ -94,8 +98,8 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
   return (
     <div className="h-full flex flex-col">
       {/* Activity info bar */}
-      <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 flex items-center gap-4 text-sm text-gray-600">
-        <span className="font-medium text-gray-800 truncate max-w-xs">{activity.name}</span>
+      <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
+        <span className="font-medium text-gray-800 dark:text-gray-100 truncate max-w-xs">{activity.name}</span>
         <span>{new Date(activity.start_date_local).toLocaleDateString()}</span>
         <span>{(activity.distance / 1000).toFixed(2)} km</span>
         {activity.moving_time && (
@@ -117,13 +121,13 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
       <div className="flex-1 relative min-h-0">
         <div ref={containerRef} className="absolute inset-0" />
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-            <span className="text-gray-500 text-sm">Loading route...</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 z-10">
+            <span className="text-gray-500 dark:text-gray-400 text-sm">Loading route...</span>
           </div>
         )}
         {!loading && !stream?.latlng?.length && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10">
-            <span className="text-gray-400 text-sm">No GPS data for this activity</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-900/50 z-10">
+            <span className="text-gray-400 dark:text-gray-500 text-sm">No GPS data for this activity</span>
           </div>
         )}
       </div>

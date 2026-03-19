@@ -36,13 +36,13 @@
 | ✅ 27 | US32-Series-PlaceholderText.md | Consistent placeholder text in series plot | Low | Low | Bug fix; CSS/style fix in one component |
 | ✅ 28 | US33-Map-ElapsedTimeFormat.md | h:mm:ss elapsed time format on map view | Low | Low | Bug fix; formatting-only change for long activities |
 | ✅ 29 | US28-Scatter-AgeGradeData.md | Replace age grade data for smoother short-distance contours | High | Low | High value/effort ratio; spreadsheet already in repo; improves all WMA contour accuracy |
-| 30 | US31-Series-DeltaScaling.md | Y-axis scale presets for time delta view | Medium | Low | Fills gap in recently shipped delta feature (US25); mirrors existing pace controls |
+| ✅ 30 | US31-Series-DeltaScaling.md | Y-axis scale presets for time delta view | Medium | Low | Fills gap in recently shipped delta feature (US25); mirrors existing pace controls |
 | ✅ 31 | US30-Scatter-WMAContourToggle.md | Per-tile WMA contour toggle and label relocation | Low | Low | Polish; isolated to ScatterPlot; small surface area |
-| 32 | US29-Scatter-ParetoFront.md | Pareto-optimal activity highlight on scatter plot | Medium | Medium | Useful race-analysis insight; new pure function keeps it testable |
+| ✅ 32 | US29-Scatter-ParetoFront.md | Pareto-optimal activity highlight on scatter plot | Medium | Medium | Useful race-analysis insight; new pure function keeps it testable |
 | ✅ 33 | US36-Series-BestSplit.md | Best split curve (series mode) | High | High | Strong race-analysis value; sliding-window algorithm is non-trivial |
 | ✅ 34 | US35-Series-CumulativePaceCDF.md | Cumulative pace distribution plot (series mode) | Medium | High | Interesting pace distribution view; less immediately actionable for race analysis than best split |
 | ✅ 35 | US37-Analysis-LongitudinalBestTime.md | Longitudinal best time plot | High | High | New tile type with rolling-window logic; high long-term value for fitness tracking |
-| 36 | US34-Settings-DarkMode.md | Dark mode toggle | Medium | High | Cross-cutting (D3 SVGs, Leaflet, Tailwind); best left until the plot surface is stable |
+| ✅ 36 | US34-Settings-DarkMode.md | Dark mode toggle | Medium | High | Cross-cutting (D3 SVGs, Leaflet, Tailwind); best left until the plot surface is stable |
 
 ## Notes
 

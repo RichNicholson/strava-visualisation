@@ -6,11 +6,21 @@
 
 ### Acceptance criteria
 
-- [ ] `GIVEN` I open the settings panel `WHEN` I view the options `THEN` there is a unit toggle for km vs miles
-- [ ] `GIVEN` I select miles `WHEN` I view the activity table, scatter plot, and series plot `THEN` distances show in miles and paces show in min/mile
-- [ ] `GIVEN` I select km (default) `WHEN` I view any display `THEN` distances show in km and paces show in min/km
-- [ ] The unit preference is persisted in the athlete record in Dexie and restored on page reload
-- [ ] All data in `lib/` remains in SI units (metres, m/s, s/km) — conversion happens only in display components
+- [x] `GIVEN` I open the settings panel `WHEN` I view the options `THEN` there is a unit toggle for km vs miles
+- [x] `GIVEN` I select miles `WHEN` I view the activity table, scatter plot, and series plot `THEN` distances show in miles and paces show in min/mile
+- [x] `GIVEN` I select km (default) `WHEN` I view any display `THEN` distances show in km and paces show in min/km
+- [x] The unit preference is persisted in the athlete record in Dexie and restored on page reload
+- [x] All data in `lib/` remains in SI units (metres, m/s, s/km) — conversion happens only in display components
+
+## Completed
+
+2026-03-12 — All AC implemented and unit-tested.
+
+- Added `lib/format.ts` with `formatDistance`, `formatPace`, `metresToDisplayUnit`, `paceToDisplayUnit`, `distanceUnit`, `paceUnit` (12 unit tests)
+- Added `units?: 'metric' | 'imperial'` to `Athlete` interface in `lib/strava/types.ts`
+- Added km/miles toggle to `SettingsPanel.tsx`; persisted via `db.athlete.update()`
+- Wired `units` prop through `page.tsx` to `ActivityTable`, `ScatterPlot`, `SeriesPlot`
+- All three display components updated to use unit-aware formatters; lib/ untouched
 
 ### Implementation notes
 

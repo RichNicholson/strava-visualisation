@@ -17,3 +17,7 @@
 - This is a research/documentation spike — no code changes
 - Reference the existing `app/api/auth/strava/` routes as the only current server-side code
 - Next.js 15 App Router uses React Server Components by default; note that any `'use client'` component ships to the browser and is inspectable regardless of minification
+
+## Completed
+
+2026-03-12 — Created `docs/deployment.md` covering Vercel setup, environment variables, OAuth callback configuration, code-protection limits, and selling-as-a-service guidance (396 words).
