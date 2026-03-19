@@ -100,7 +100,15 @@ export function RouteMap({ activity, stream, loading, color = '#f97316', hovered
         <span>{(activity.distance / 1000).toFixed(2)} km</span>
         {activity.moving_time && (
           <span>
-            {Math.floor(activity.moving_time / 60)}:{String(activity.moving_time % 60).padStart(2, '0')}
+            {(() => {
+              const t = activity.moving_time
+              const h = Math.floor(t / 3600)
+              const m = Math.floor((t % 3600) / 60)
+              const s = t % 60
+              return h > 0
+                ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+                : `${m}:${String(s).padStart(2, '0')}`
+            })()}
           </span>
         )}
       </div>

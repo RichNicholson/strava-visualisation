@@ -6,6 +6,8 @@ import type { StravaActivity, Athlete, Channel, SeriesMetric } from '../../lib/s
 import type { ActivityStream } from '../../lib/strava/types'
 import { generateAgeGradeContour, computeAgeGrade, ageAtDate } from '../../lib/wma/ageGrade'
 import { computeDeltaSeries } from '../../lib/analysis/timeDelta'
+import { computeBestSplitCurve } from '../../lib/analysis/bestSplit'
+import { metresToDisplayUnit, paceToDisplayUnit, distanceUnit, paceUnit, type UnitSystem } from '../../lib/format'
 
 // Keep YMetric as a local alias for SeriesMetric so all existing references continue to work
 type YMetric = SeriesMetric
@@ -23,6 +25,7 @@ interface SeriesPlotProps {
   onChannelsChange?: (channels: Channel[]) => void
   /** Fired with (activityId, streamIndex) on crosshair hover; (null, null) on leave. */
   onHoverIndex?: (activityId: number | null, streamIndex: number | null) => void
+  units?: UnitSystem
 }
 
 const MARGIN = { top: 20, right: 30, bottom: 50, left: 70 }
@@ -35,6 +38,7 @@ const Y_LABELS: Record<YMetric, string> = {
   elevation: 'Elevation (m)',
   cadence: 'Cadence (spm)',
   delta: 'Time delta',
+  bestsplit: 'Best split pace',
 }
 
 const METRIC_SHORT: Record<YMetric, string> = {
@@ -45,6 +49,7 @@ const METRIC_SHORT: Record<YMetric, string> = {
   elevation: 'Elevation',
   cadence: 'Cadence',
   delta: 'Time delta',
+  bestsplit: 'Best split',
 }
 
 // Per-channel axis colours (orange, blue, purple, green)
@@ -175,6 +180,7 @@ function computeYDataForChannel(
     case 'elevation': return stream.altitude
     case 'cadence': return stream.cadence
     case 'delta': return undefined  // handled by dedicated delta rendering path
+    case 'bestsplit': return undefined  // handled by dedicated bestsplit rendering path
   }
 }
 
@@ -185,7 +191,7 @@ function orderChannelsForStack(channels: Channel[]): Channel[] {
   ]
 }
 
-export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange, onHoverIndex }: SeriesPlotProps) {
+export function SeriesPlot({ activities, streams, loading, colorMap, athlete, baselineId, channels, onChannelsChange, onHoverIndex, units = 'metric' }: SeriesPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -263,6 +269,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   // Delta mode is only active in single-metric mode; in multi-channel mode delta is
   // rendered as a normal channel inside the per-channel forEach loop.
   const isDeltaMode = !multiChannel && yMetric === 'delta'
+  // Best split mode is only active in single-metric mode
+  const isBestSplitMode = !multiChannel && yMetric === 'bestsplit'
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -393,9 +401,9 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .attr('y1', yDeltaScale(0)).attr('y2', yDeltaScale(0))
         .attr('stroke', '#9ca3af').attr('stroke-dasharray', '4,4').attr('stroke-width', 1.5)
 
-      // X-axis
+      // X-axis (delta mode): reuse same unit-aware formatter as main rendering
       const xFmtDelta = xMetric === 'distance'
-        ? (d: d3.NumberValue) => `${(Number(d) / 1000).toFixed(1)}`
+        ? (d: d3.NumberValue) => `${metresToDisplayUnit(Number(d), units).toFixed(1)}`
         : (d: d3.NumberValue) => {
             const totalMins = Math.round(Number(d) / 60)
             const h = Math.floor(totalMins / 60)
@@ -409,10 +417,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           ax.append('text')
             .attr('x', innerW / 2).attr('y', 40)
             .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
-            .text(xMetric === 'distance' ? 'Distance (km)' : 'Time')
+            .text(xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time')
         )
-
-      // Y-axis
       const yDeltaLabel = xMetric === 'distance' ? 'Time delta (s)' : 'Distance delta (m)'
       g.append('g')
         .call(d3.axisLeft(yDeltaScale).ticks(8))
@@ -485,6 +491,156 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Best split rendering path
+    // ═══════════════════════════════════════════════════════════════════════
+    if (isBestSplitMode) {
+      const innerW = width - MARGIN.left - MARGIN.right
+      const innerH = height - MARGIN.top - MARGIN.bottom
+
+      svg.append('defs')
+        .append('clipPath').attr('id', 'series-clip')
+        .append('rect').attr('width', innerW).attr('height', innerH)
+
+      const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`)
+
+      // Compute best split curves for each rostered run
+      const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
+      const tooltip = tooltipRef.current
+
+      const splitSeries: { id: number; name: string; color: string; points: { windowDist: number; bestPace: number }[] }[] = []
+
+      for (const [idx, activity] of activities.entries()) {
+        const stream = streams.get(activity.id)
+        if (!stream || !stream.distance || !stream.time) continue
+        const points = computeBestSplitCurve(stream.distance, stream.time)
+        if (points.length > 0) {
+          const color = colorMap?.get(activity.id) ?? colorScale(String(idx))
+          splitSeries.push({ id: activity.id, name: activity.name, color, points })
+        }
+      }
+
+      if (splitSeries.length === 0) {
+        g.append('text')
+          .attr('x', innerW / 2).attr('y', innerH / 2)
+          .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '13px')
+          .text('No stream data available for best split computation')
+        return
+      }
+
+      // X-axis: window size up to the shortest run distance
+      const shortestDist = Math.min(...splitSeries.map(s => s.points[s.points.length - 1].windowDist))
+      const xScale = d3.scaleLinear().domain([0, shortestDist]).range([0, innerW])
+      xScaleRef.current = xScale
+
+      // Y-axis: pace (inverted: faster = lower value = higher on chart)
+      const allPaces = splitSeries.flatMap(s => s.points.map(p => p.bestPace))
+      const minPace = d3.min(allPaces)!
+      const maxPace = d3.max(allPaces)!
+      const yScale = d3.scaleLinear()
+        .domain([maxPace * 1.02, minPace * 0.98])
+        .range([innerH, 0])
+        .nice()
+      yScaleRef.current = yScale
+
+      // Grid
+      g.append('g')
+        .attr('class', 'grid-x')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      g.append('g')
+        .call(d3.axisLeft(yScale).ticks(12).tickSize(-innerW).tickFormat(() => ''))
+        .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+
+      // X-axis labels (window distance)
+      const xFmtBs = (d: d3.NumberValue) => `${metresToDisplayUnit(Number(d), units).toFixed(1)}`
+      g.append('g')
+        .attr('transform', `translate(0,${innerH})`)
+        .call(d3.axisBottom(xScale).ticks(16).tickFormat(xFmtBs as never))
+        .call((ax) =>
+          ax.append('text')
+            .attr('x', innerW / 2).attr('y', 40)
+            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text(`Window size (${distanceUnit(units)})`)
+        )
+
+      // Y-axis labels (pace)
+      const yFmtBs = (d: d3.NumberValue) => {
+        const s = paceToDisplayUnit(Number(d), units)
+        return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
+      }
+      g.append('g')
+        .call(d3.axisLeft(yScale).ticks(12).tickFormat(yFmtBs as never))
+        .call((ax) =>
+          ax.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('x', -innerH / 2).attr('y', -55)
+            .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+            .text(`Best split pace (${paceUnit(units)})`)
+        )
+
+      const plotGroup = g.append('g').attr('clip-path', 'url(#series-clip)')
+
+      const lineGen = d3.line<{ windowDist: number; bestPace: number }>()
+        .x((d) => xScale(d.windowDist))
+        .y((d) => yScale(d.bestPace))
+        .defined((d) => isFinite(d.bestPace))
+        .curve(d3.curveLinear)
+
+      splitSeries.forEach((s) => {
+        // Hit area
+        plotGroup.append('path')
+          .datum(s.points)
+          .attr('fill', 'none')
+          .attr('stroke', 'transparent')
+          .attr('stroke-width', 12)
+          .attr('d', lineGen)
+          .style('cursor', 'pointer')
+          .on('mouseenter', function () {
+            if (tooltip) {
+              tooltip.style.display = 'block'
+              tooltip.style.borderColor = s.color
+              tooltip.textContent = s.name
+            }
+          })
+          .on('mousemove', function (event) {
+            if (!tooltip) return
+            const [mx, my] = d3.pointer(event, containerRef.current!)
+            const xVal = xScale.invert(mx - MARGIN.left)
+            if (s.points.length > 0) {
+              const closest = s.points.reduce((best, p) =>
+                Math.abs(p.windowDist - xVal) < Math.abs(best.windowDist - xVal) ? p : best
+              )
+              const distFmt = `${metresToDisplayUnit(closest.windowDist, units).toFixed(2)} ${distanceUnit(units)}`
+              const { bestPace } = closest
+              const paceDisplay = paceToDisplayUnit(bestPace, units)
+              const paceFmt = `${Math.floor(paceDisplay / 60)}:${String(Math.round(paceDisplay % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
+              tooltip.textContent = `${s.name} | ${distFmt} | ${paceFmt}`
+            }
+            tooltip.style.left = `${mx + 14}px`
+            tooltip.style.top = `${my - 10}px`
+          })
+          .on('mouseleave', function () {
+            if (tooltip) tooltip.style.display = 'none'
+          })
+
+        // Visible line
+        plotGroup.append('path')
+          .datum(s.points)
+          .attr('class', 'series-line')
+          .attr('data-id', String(s.id))
+          .attr('fill', 'none')
+          .attr('stroke', s.color)
+          .attr('stroke-width', 1.5)
+          .attr('opacity', 0.8)
+          .style('pointer-events', 'none')
+          .attr('d', lineGen)
+      })
+
+      return
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Multi-channel rendering path
     // ═══════════════════════════════════════════════════════════════════════
     if (multiChannel) {
@@ -544,9 +700,9 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .call(d3.axisBottom(xScale).ticks(16).tickSize(-innerH).tickFormat(() => ''))
         .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
 
-      const xLabel = xMetric === 'distance' ? 'Distance (km)' : 'Time'
+      const xLabel = xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time'
       const xFmtFn = xMetric === 'distance'
-        ? (d: d3.NumberValue) => `${(Number(d) / 1000).toFixed(1)}`
+        ? (d: d3.NumberValue) => `${metresToDisplayUnit(Number(d), units).toFixed(1)}`
         : (d: d3.NumberValue) => {
             const totalMins = Math.round(Number(d) / 60)
             const h = Math.floor(totalMins / 60)
@@ -835,7 +991,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         const nTicks = Math.max(3, Math.round(bandHeight / 40))
         const yFmtFn = isPace
           ? (d: d3.NumberValue) => {
-              const s = Number(d)
+              const s = paceToDisplayUnit(Number(d), units)
               return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
             }
           : undefined
@@ -1298,9 +1454,9 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
       .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
 
     // Axes
-    const xLabel = xMetric === 'distance' ? 'Distance (km)' : 'Time'
+    const xLabel = xMetric === 'distance' ? `Distance (${distanceUnit(units)})` : 'Time'
     const xFmtFn = xMetric === 'distance'
-      ? (d: d3.NumberValue) => `${(Number(d) / 1000).toFixed(1)}`
+      ? (d: d3.NumberValue) => `${metresToDisplayUnit(Number(d), units).toFixed(1)}`
       : (d: d3.NumberValue) => {
           const totalMins = Math.round(Number(d) / 60)
           const h = Math.floor(totalMins / 60)
@@ -1319,7 +1475,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
 
     const yFmtFn = isPace
       ? (d: d3.NumberValue) => {
-          const s = Number(d)
+          const s = paceToDisplayUnit(Number(d), units)
           return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
         }
       : undefined
@@ -1331,7 +1487,10 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           .attr('transform', 'rotate(-90)')
           .attr('x', -innerH / 2).attr('y', -55)
           .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
-          .text(Y_LABELS[yMetric])
+          .text(isPace
+            ? (units === 'imperial' ? Y_LABELS[yMetric].replace('min/km', 'min/mi') : Y_LABELS[yMetric])
+            : Y_LABELS[yMetric]
+          )
       )
 
     // Line generator — no smoothing, straight point-to-point
@@ -1421,10 +1580,10 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               .attr('stroke', 'white').attr('stroke-width', 1.5)
             // Label: x · y
             const xFmt = xMetric === 'distance'
-              ? `${(xDataVal / 1000).toFixed(2)} km`
+              ? `${metresToDisplayUnit(xDataVal, units).toFixed(2)} ${distanceUnit(units)}`
               : fmtTime(xDataVal)
             const yFmt = isPace
-              ? `${Math.floor(closestPt.y / 60)}:${String(Math.round(closestPt.y % 60)).padStart(2, '0')} /km`
+              ? `${(() => { const s = paceToDisplayUnit(closestPt.y, units); return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` })()} /${paceUnit(units).replace('min/', '')}`
               : yMetric === 'heartrate' ? `${Math.round(closestPt.y)} bpm`
               : yMetric === 'elevation' ? `${Math.round(closestPt.y)} m`
               : yMetric === 'cadence'   ? `${Math.round(closestPt.y)} spm`
@@ -1589,7 +1748,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         }
       }
     }
-  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, channels])
+  }, [activities, streams, yMetric, xMetric, colorMap, showWMA, ageGradePercent, medianAgeGrade, athlete, timeMode, yViewDomain, yScaleMode, baselineId, multiChannel, isBestSplitMode, channels, units])
 
   // Handle drag events for WMA contour
   useEffect(() => {
@@ -1801,7 +1960,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">Y:</span>
-          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta', 'bestsplit'] as YMetric[]).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
@@ -1809,14 +1968,16 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 text-gray-500'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m}
+              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m === 'bestsplit' ? 'best split' : m}
             </button>
           ))}
         </div>
           </>
         )}
 
-        {/* ── Shared controls (X-axis, time mode) ──────────────────────── */}
+        {/* ── Shared controls (X-axis, time mode) — hidden in best split mode ── */}
+        {!isBestSplitMode && (
+          <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">X:</span>
           {(['distance', 'time'] as XMetric[]).map((m) => (
@@ -1845,8 +2006,10 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
+          </>
+        )}
 
-        {!multiChannel && (
+        {!multiChannel && !isBestSplitMode && (
           /* ── Single-metric-only controls (scale, WMA) ─────────────────── */
           <>
         <div className="flex items-center gap-1">
@@ -2037,13 +2200,13 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         )}
         <svg ref={svgRef} className="w-full h-full" />
         {activities.length > 0 && streams.size === 0 && !loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-white z-10 text-gray-400 text-sm">
             Stream data not yet loaded — sync activities first
           </div>
         )}
         {activities.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
-            No activities match the current filters
+          <div className="absolute inset-0 flex items-center justify-center bg-white z-10 text-gray-400 text-sm">
+            Add runs to the roster to compare them here
           </div>
         )}
       </div>

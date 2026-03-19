@@ -103,6 +103,27 @@ describe('ageAtDate', () => {
   })
 })
 
+describe('MLDRRoadFactors2025 spot-checks', () => {
+  // Values read directly from MLDRRoadFactors2025.xlsm — OC column and age columns
+  it('men 5km world standard is ~769 s (≈13:29)', () => {
+    // timeForAgeGrade at age with factor=1 (young elite) should equal the OC standard
+    // Factor for age 20 on 5km is 1.0 in the MLDR table
+    const t = timeForAgeGrade('M', 20, 5000, 100)
+    expect(t).toBeCloseTo(769, 0)
+  })
+
+  it('men 5km age-60 factor is ~0.8075', () => {
+    expect(getAgeFactor('M', 60, 5000)).toBeCloseTo(0.8075, 3)
+  })
+
+  it('women 10km standard and factors produce reasonable age grades', () => {
+    // A 40-year-old woman running 10km in 40 minutes should score ~55-75%
+    const grade = computeAgeGrade('F', 40, 10000, 40 * 60)
+    expect(grade).toBeGreaterThan(50)
+    expect(grade).toBeLessThan(80)
+  })
+})
+
 describe('timeForAgeGrade', () => {
   it('is the inverse of computeAgeGrade', () => {
     const targetGrade = 65

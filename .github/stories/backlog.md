@@ -29,9 +29,20 @@
 | ✅ 20 | US18-Series-Crosshair-Linked-Map.md | Series crosshair with linked map marker | High | High | Links pace data to geography — high value for race review; pairs with US25 for pinpointing time gains/losses on course |
 | ✅ 21 | US20-Scatter-Axis-Constrained-Zoom.md | Axis-constrained zoom on scatter plot | Medium | Medium | Useful for isolating a pace or distance band; enhances existing brush-to-zoom |
 | ✅ 22 | US2-Filter-Dynamic-Controls.md | Dynamic filter controls | Medium | High | Depends on US1 (done); significant FilterPanel refactor; more quality-of-life than race analysis |
-| 23 | US24-Deployment-Guidance.md | Deployment guidance spike | Medium | Low | Research-only output; no code changes but important for taking the app live |
-| 24 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
+| ✅ 23 | US24-Deployment-Guidance.md | Deployment guidance spike | Medium | Low | Research-only output; no code changes but important for taking the app live |
+| ✅ 24 | US13-Settings-Unit-Preference.md | Unit preference (km / miles) | Low | High | Touches many display components; does not directly support race analysis |
 | ✅ 25 | US10-Layout-Tileable-Tabs.md | Tileable and tabbable layout | Medium | High | Valuable for side-by-side comparison but requires a major dashboard refactor; best tackled after core analysis features land. Enables full value of US18 (crosshair + map link) |
+| ✅ 26 | US27-Table-PaceFormatRollover.md | Pace formatting rollover in activity table | Low | Low | Bug fix; one-line guard in `formatPace`; zero risk |
+| ✅ 27 | US32-Series-PlaceholderText.md | Consistent placeholder text in series plot | Low | Low | Bug fix; CSS/style fix in one component |
+| ✅ 28 | US33-Map-ElapsedTimeFormat.md | h:mm:ss elapsed time format on map view | Low | Low | Bug fix; formatting-only change for long activities |
+| ✅ 29 | US28-Scatter-AgeGradeData.md | Replace age grade data for smoother short-distance contours | High | Low | High value/effort ratio; spreadsheet already in repo; improves all WMA contour accuracy |
+| 30 | US31-Series-DeltaScaling.md | Y-axis scale presets for time delta view | Medium | Low | Fills gap in recently shipped delta feature (US25); mirrors existing pace controls |
+| ✅ 31 | US30-Scatter-WMAContourToggle.md | Per-tile WMA contour toggle and label relocation | Low | Low | Polish; isolated to ScatterPlot; small surface area |
+| 32 | US29-Scatter-ParetoFront.md | Pareto-optimal activity highlight on scatter plot | Medium | Medium | Useful race-analysis insight; new pure function keeps it testable |
+| ✅ 33 | US36-Series-BestSplit.md | Best split curve (series mode) | High | High | Strong race-analysis value; sliding-window algorithm is non-trivial |
+| ✅ 34 | US35-Series-CumulativePaceCDF.md | Cumulative pace distribution plot (series mode) | Medium | High | Interesting pace distribution view; less immediately actionable for race analysis than best split |
+| ✅ 35 | US37-Analysis-LongitudinalBestTime.md | Longitudinal best time plot | High | High | New tile type with rolling-window logic; high long-term value for fitness tracking |
+| 36 | US34-Settings-DarkMode.md | Dark mode toggle | Medium | High | Cross-cutting (D3 SVGs, Leaflet, Tailwind); best left until the plot surface is stable |
 
 ## Notes
 
@@ -42,3 +53,7 @@
 - **US2 no longer blocked**: US1 (heart rate filter) is done, so US2 can proceed. It remains lower priority because it's a large FilterPanel refactor with a quality-of-life rather than race-analysis payoff.
 - **US10 risk**: Tileable layout is still the highest-risk item — it rearchitects the dashboard's single-`plotMode` model. Deferring it near the end ensures it doesn't destabilise features built on the current tab-based layout.
 - **Deployment (US24)**: Slotted after analysis features but before the two biggest refactors. It's low effort and timely if the app is approaching a shareable state.
+- **US28 depends on the spreadsheet**: `MLDRRoadFactors2025.xlsm` is in the repo root and must be parsed to replace the Howard Grubb data in `lib/wma/`.
+- **US30 depends on US28**: Moving the WMA label into the tile and adding a toggle is cleanest after the data update lands.
+- **New series modes (US36, US35)**: Both require a special x-axis interpretation — best split uses window size on x, CDF uses pace on x. Resolve the UI approach at the start of each story.
+- **US34 (dark mode)** deliberately last — touches the most files and benefits from the UI being fully settled.
