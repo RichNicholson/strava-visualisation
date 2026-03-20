@@ -155,11 +155,14 @@ export function generateAgeGradeContour(
  * @param eventDate - ISO date string of the activity start date
  */
 export function ageAtDate(dateOfBirth: string, eventDate: string): number {
-  const dob = new Date(dateOfBirth)
-  const event = new Date(eventDate)
-  const years = event.getFullYear() - dob.getFullYear()
-  const birthdayThisYear = new Date(event.getFullYear(), dob.getMonth(), dob.getDate())
-  return event >= birthdayThisYear ? years : years - 1
+  // Parse date-only strings as local dates to avoid UTC-to-local shifts.
+  const [dobY, dobM, dobD] = dateOfBirth.split('-').map(Number)
+  const [evY, evM, evD] = eventDate.split('-').map(Number)
+  const years = evY - dobY
+  // Has the birthday occurred yet in the event year?
+  const birthdayPassed =
+    evM > dobM || (evM === dobM && evD >= dobD)
+  return birthdayPassed ? years : years - 1
 }
 
 /**

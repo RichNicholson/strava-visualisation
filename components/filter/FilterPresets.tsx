@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { FilterState } from '../../lib/strava/types'
 import { useFilterPresets } from '../../hooks/useFilterPresets'
 
@@ -41,7 +41,7 @@ export function FilterPresets({ currentFilter, onLoad }: FilterPresetsProps) {
     if (detailsRef.current) detailsRef.current.open = false
   }
 
-  function handleDelete(presetName: string, e: React.MouseEvent) {
+  function handleDelete(presetName: string, e: ReactMouseEvent) {
     e.stopPropagation()
     remove(presetName)
     // Clear the name field if it was pointing at the deleted preset

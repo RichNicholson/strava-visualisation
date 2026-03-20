@@ -71,7 +71,8 @@ export async function syncActivities(
 
     allActivities.push(...batch)
     totalFetched += batch.length
-    onProgress?.({ phase: 'activities', activitiesFetched: totalFetched, importedActivities: [...allActivities] })
+    // Report only the current batch to avoid O(n²) array cloning across pages.
+    onProgress?.({ phase: 'activities', activitiesFetched: totalFetched, importedActivities: batch })
 
     try {
       await db.activities.bulkPut(batch)
@@ -85,7 +86,7 @@ export async function syncActivities(
     if (batch.length < 100) break
   }
 
-  onProgress?.({ phase: 'done', activitiesFetched: totalFetched, importedActivities: [...allActivities] })
+  onProgress?.({ phase: 'done', activitiesFetched: totalFetched, importedActivities: [] })
 }
 
 export async function syncStreamsForActivity(
