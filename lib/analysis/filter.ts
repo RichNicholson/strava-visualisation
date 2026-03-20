@@ -27,7 +27,9 @@ export function applyFilter(activities: StravaActivity[], filter: FilterState): 
 
     // Pace filters — average and best-split are independent; either or both may be active
     if (filter.pace.average) {
-      const pace = a.elapsed_time > 0 && a.distance > 0 ? a.elapsed_time / (a.distance / 1000) : Infinity
+      // 1000 / average_speed converts m/s to s/km (moving pace), consistent with
+      // getAveragePaceBounds and METRIC_LABELS.average_pace ("Avg Pace (moving)").
+      const pace = a.average_speed > 0 ? 1000 / a.average_speed : Infinity
       if (pace < filter.pace.average.min || pace > filter.pace.average.max) return false
     }
 

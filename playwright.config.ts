@@ -8,8 +8,9 @@ import { defineConfig, devices } from '@playwright/test'
  * runs you want stream data for already in the roster.
  *
  * Run tests:
- *   pnpm e2e          # assumes dev server already running on :3000
- *   pnpm e2e:ci       # starts dev server automatically
+ *   pnpm e2e       # assumes dev server already running on :3000
+ *   pnpm e2e:ci    # starts dev server automatically before running tests
+ *   pnpm e2e:ui    # open interactive Playwright UI
  */
 export default defineConfig({
   testDir: './e2e',
@@ -29,10 +30,10 @@ export default defineConfig({
     },
   ],
 
-  // Uncomment to auto-start the dev server when running `pnpm e2e:ci`:
-  // webServer: {
-  //   command: 'pnpm dev',
-  //   url: 'http://localhost:3000',
-  //   reuseExistingServer: true,
-  // },
+  // Auto-start the dev server when running `pnpm e2e:ci`.
+  webServer: {
+    command: 'pnpm dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
 })

@@ -53,7 +53,7 @@ export class StravaDB extends Dexie {
 export const db = new StravaDB()
 
 /**
- * Clear all local data — activities, streams, and athlete profile.
+ * Clear all local data — activities, streams, athlete profile, and saved layouts.
  * After calling this the app has no locally persisted state.
  */
 export async function clearAll(): Promise<void> {
@@ -61,6 +61,7 @@ export async function clearAll(): Promise<void> {
     db.activities.clear(),
     db.streams.clear(),
     db.athlete.clear(),
+    db.savedLayouts.clear(),
   ])
 }
 

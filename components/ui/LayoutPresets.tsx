@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { WorkspaceState } from '../../lib/strava/types'
 import { useSavedLayouts } from '../../hooks/useSavedLayouts'
 
@@ -48,7 +48,7 @@ export function LayoutPresets({ currentWorkspace, defaultName = '', onLoad }: La
     if (detailsRef.current) detailsRef.current.open = false
   }
 
-  function handleDelete(id: string, e: React.MouseEvent) {
+  function handleDelete(id: string, e: ReactMouseEvent) {
     e.stopPropagation()
     deleteLayout(id)
     const layout = loadLayout(id)

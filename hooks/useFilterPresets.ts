@@ -18,6 +18,7 @@ function migrateFilter(f: FilterState): FilterState {
     sufferScore: f.sufferScore ?? null,
     movingTime: f.movingTime ?? null,
     elapsedTime: f.elapsedTime ?? null,
+    heartrate: f.heartrate ?? null,
   }
 }
 

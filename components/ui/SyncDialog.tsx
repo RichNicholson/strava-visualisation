@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SyncProgress } from '../../lib/db/sync'
 import type { StravaActivity } from '../../lib/strava/types'
 
@@ -39,6 +39,17 @@ export function SyncDialog({ progress, isSyncing, onDismiss }: SyncDialogProps) 
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
+  // Accumulate activities across pages so the dialog shows the full running list.
+  const [accumulated, setAccumulated] = useState<StravaActivity[]>([])
+  useEffect(() => {
+    if (progress.phase === 'athlete') {
+      // New sync starting — reset the accumulated list.
+      setAccumulated([])
+    } else if (progress.importedActivities.length > 0) {
+      setAccumulated((prev) => [...prev, ...progress.importedActivities])
+    }
+  }, [progress.phase, progress.importedActivities])
+
   // Auto-scroll to the bottom whenever new activities arrive, but only if
   // the user hasn't scrolled up to browse.
   useEffect(() => {
@@ -48,10 +59,10 @@ export function SyncDialog({ progress, isSyncing, onDismiss }: SyncDialogProps) 
     if (isNearBottom) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [progress.importedActivities.length])
+  }, [accumulated.length])
 
   const isDone = progress.phase === 'done'
-  const count = progress.importedActivities.length
+  const count = progress.activitiesFetched
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -116,7 +127,7 @@ export function SyncDialog({ progress, isSyncing, onDismiss }: SyncDialogProps) 
             ref={listRef}
             className="overflow-y-auto flex-1 px-3 pb-4 min-h-0"
           >
-            {progress.importedActivities.map((activity) => (
+            {accumulated.map((activity) => (
               <ActivityRow key={activity.id} activity={activity} />
             ))}
             <div ref={bottomRef} />
