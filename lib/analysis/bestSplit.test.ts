@@ -141,4 +141,61 @@ describe('computeBestSplitCurve', () => {
       expect(curve[i].bestPace).toBeGreaterThanOrEqual(curve[i - 1].bestPace - 1)
     }
   })
+
+  it('finds fast intervals after a slow warmup (interval workout pattern)', () => {
+    // 8km run:
+    //   0-2km    warmup  8 min/km (480 s/km) — 48s/100m
+    //   2-2.5km  fast #1 4 min/km (240 s/km) — 24s/100m
+    //   2.5-3km  recovery 8 min/km
+    //   3-3.5km  fast #2 4 min/km
+    //   3.5-8km  cooldown 8 min/km
+    //
+    // The best window for a ~500m distance must reflect the fast interval pace,
+    // NOT the warmup/cumulative-from-zero pace.  This would fail if the
+    // two-pointer only ever evaluated windows starting at position 0.
+    const dist: number[] = []
+    const time: number[] = []
+    const STEP = 100  // metres
+
+    const segments: Array<[number, number]> = [
+      [2000, 48],   // 0-2km  slow  (48s/100m = 480 s/km = 8 min/km)
+      [500, 24],    // fast #1 (24s/100m = 240 s/km = 4 min/km)
+      [500, 48],    // recovery
+      [500, 24],    // fast #2
+      [4500, 48],   // cooldown
+    ]
+
+    let d = 0
+    let t = 0
+    dist.push(d)
+    time.push(t)
+    for (const [len, sPerHundred] of segments) {
+      for (let m = 0; m < len; m += STEP) {
+        d += STEP
+        t += sPerHundred
+        dist.push(d)
+        time.push(t)
+      }
+    }
+
+    const curve = computeBestSplitCurve(dist, time)
+    expect(curve.length).toBeGreaterThan(0)
+
+    // Best 500m window should be ~240 s/km (4 min/km) from a fast interval,
+    // not ~480 s/km (8 min/km) from the warmup.
+    const best500 = curve.find(p => p.windowDist >= 490 && p.windowDist <= 510)
+    expect(best500).toBeDefined()
+    expect(best500!.bestPace).toBeCloseTo(240, 0)
+
+    // Best 2km window should be faster than the warmup pace because it can
+    // be positioned to include a fast interval.
+    const best2k = curve.find(p => p.windowDist >= 1990 && p.windowDist <= 2010)
+    expect(best2k).toBeDefined()
+    expect(best2k!.bestPace).toBeLessThan(480)
+
+    // Cumulative-from-zero pace at 500m is the warmup pace ≈ 480 s/km —
+    // the best split must be strictly faster, proving it is NOT anchored at 0.
+    const cumulativePaceAt500 = (time[5] / dist[5]) * 1000  // first 500m index
+    expect(best500!.bestPace).toBeLessThan(cumulativePaceAt500 - 100)
+  })
 })

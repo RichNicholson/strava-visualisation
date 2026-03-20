@@ -22,6 +22,12 @@ export function SettingsPanel({ athlete, rosterIds = [], onClose, onFullResync }
   const [clearing, setClearing] = useState(false)
   const [exporting, setExporting] = useState(false)
 
+  const hasUnsavedChanges = athlete != null && (
+    dateOfBirth !== (athlete.dateOfBirth ?? '') ||
+    sex !== (athlete.sex ?? 'M') ||
+    units !== (athlete.units ?? 'metric')
+  )
+
   async function handleExportFixture() {
     setExporting(true)
     try {
@@ -69,7 +75,7 @@ export function SettingsPanel({ athlete, rosterIds = [], onClose, onFullResync }
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-800 dark:text-gray-100 text-lg">Settings</h2>
           <button
-            onClick={onClose}
+            onClick={hasUnsavedChanges ? save : onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -152,10 +158,14 @@ export function SettingsPanel({ athlete, rosterIds = [], onClose, onFullResync }
         {athlete ? (
           <button
             onClick={save}
-            disabled={saving}
-            className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-semibold rounded-xl transition-colors"
+            disabled={saving || !hasUnsavedChanges}
+            className={`w-full py-2.5 font-semibold rounded-xl transition-colors ${
+              hasUnsavedChanges
+                ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-default'
+            } disabled:opacity-60`}
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? 'Saving...' : hasUnsavedChanges ? 'Apply' : 'No changes'}
           </button>
         ) : (
           <p className="text-sm text-gray-400 dark:text-gray-500 text-center">

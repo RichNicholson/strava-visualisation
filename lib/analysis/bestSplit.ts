@@ -59,20 +59,6 @@ export function computeBestSplitCurve(
     }
   }
 
-  // Enforce monotonicity: best pace (s/km) must be non-decreasing with window
-  // distance. Small violations can arise from GPS noise and linear interpolation
-  // of discrete stream data — a larger window should never appear faster than a
-  // smaller one. Walk ascending and pull any faster-than-previous point up to
-  // match the previous pace.
-  let runningMax = 0
-  for (const pt of result) {
-    if (pt.bestPace < runningMax) {
-      pt.bestPace = runningMax
-    } else {
-      runningMax = pt.bestPace
-    }
-  }
-
   return result
 }
 

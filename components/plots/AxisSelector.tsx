@@ -13,7 +13,7 @@ interface AxisSelectorProps {
 export function AxisSelector({ label, value, onChange, exclude = [] }: AxisSelectorProps) {
   const options = (Object.keys(METRIC_LABELS) as MetricKey[]).filter(
     (k) => !exclude.includes(k)
-  )
+  ).sort((a, b) => METRIC_LABELS[a].localeCompare(METRIC_LABELS[b]))
 
   return (
     <div className="flex items-center gap-2">

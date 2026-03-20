@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import * as d3 from 'd3'
 import type { StravaActivity, Athlete, Channel, SeriesMetric } from '../../lib/strava/types'
 import type { ActivityStream } from '../../lib/strava/types'
@@ -272,8 +272,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
   // Delta mode is only active in single-metric mode; in multi-channel mode delta is
   // rendered as a normal channel inside the per-channel forEach loop.
   const isDeltaMode = !multiChannel && yMetric === 'delta'
-  // Best split mode is only active in single-metric mode
-  const isBestSplitMode = !multiChannel && yMetric === 'bestsplit'
+  // Best split mode overrides multi-channel rendering when active
+  const isBestSplitMode = yMetric === 'bestsplit'
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return
@@ -320,7 +320,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       activities.forEach((activity) => {
         const stream = streams.get(activity.id)
         if (!stream?.velocity_smooth || !stream.time) return
-        const pts = computePaceCDF(stream.velocity_smooth, stream.time, stream.moving)
+        const pts = computePaceCDF(stream.velocity_smooth, stream.time, timeMode === 'moving' ? stream.moving : undefined)
         if (pts.length > 0) cdfSeries.push({ id: activity.id, name: activity.name, points: pts })
       })
 
@@ -328,9 +328,16 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
 
       const allPaces = cdfSeries.flatMap((s) => s.points.map((p) => p.pace))
       const paceMin = d3.min(allPaces)!
-      const paceMax = d3.max(allPaces)!
-      // x-axis: left = fastest (paceMin), right = slowest (paceMax)
-      const xScale = d3.scaleLinear().domain([paceMin * 0.98, paceMax * 1.02]).range([0, innerW])
+      // Cap the slow end at the 98th-percentile pace across all series to avoid
+      // outlier spikes skewing the axis
+      const pace98 = d3.max(
+        cdfSeries.map((s) => {
+          const p98 = s.points.find((p) => p.cumulativePercent >= 98)
+          return p98 ? p98.pace : s.points[s.points.length - 1].pace
+        })
+      )!
+      // x-axis: left = fastest (paceMin), right = 98th-percentile pace
+      const xScale = d3.scaleLinear().domain([paceMin * 0.98, pace98 * 1.02]).range([0, innerW])
       const yScale = d3.scaleLinear().domain([0, 100]).range([innerH, 0])
 
       g.append('g')
@@ -387,7 +394,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           .datum(s.points)
           .attr('fill', 'none')
           .attr('stroke', 'transparent')
-          .attr('stroke-width', 12)
+          .attr('stroke-width', 24)
           .attr('d', lineGen)
           .style('cursor', 'pointer')
           .on('mouseenter', function () {
@@ -403,12 +410,20 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
             }
           })
           .on('mousemove', function (event) {
+            const [mx] = d3.pointer(event, g.node()!)
+            const paceAtCursor = xScale.invert(mx)
+            const closest = s.points.reduce((best, p) =>
+              Math.abs(p.pace - paceAtCursor) < Math.abs(best.pace - paceAtCursor) ? p : best
+            )
+            // Cursor dot
+            g.selectAll('.cdf-cursor-dot').remove()
+            g.append('circle')
+              .attr('class', 'cdf-cursor-dot')
+              .attr('cx', xScale(closest.pace)).attr('cy', yScale(closest.cumulativePercent))
+              .attr('r', 4).attr('fill', color)
+              .attr('stroke', 'white').attr('stroke-width', 1.5)
+              .style('pointer-events', 'none')
             if (tooltipEl) {
-              const [mx] = d3.pointer(event, g.node()!)
-              const paceAtCursor = xScale.invert(mx)
-              const closest = s.points.reduce((best, p) =>
-                Math.abs(p.pace - paceAtCursor) < Math.abs(best.pace - paceAtCursor) ? p : best
-              )
               const paceDisplay = paceToDisplayUnit(closest.pace, units)
               const paceStr = `${Math.floor(paceDisplay / 60)}:${String(Math.round(paceDisplay % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
               tooltipEl.innerHTML = `<strong>${s.name}</strong><br/>${paceStr}<br/>${closest.cumulativePercent.toFixed(1)}% of time`
@@ -420,6 +435,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           .on('mouseleave', function () {
             g.selectAll<SVGPathElement, unknown>('path.cdf-line')
               .attr('opacity', 0.8).attr('stroke-width', 1.5)
+            g.selectAll('.cdf-cursor-dot').remove()
             if (tooltipEl) tooltipEl.style.display = 'none'
           })
 
@@ -601,7 +617,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           .datum(s.points)
           .attr('fill', 'none')
           .attr('stroke', 'transparent')
-          .attr('stroke-width', 12)
+          .attr('stroke-width', 24)
           .attr('d', deltaLineGen)
           .style('cursor', 'pointer')
           .on('mouseenter', function () {
@@ -667,7 +683,10 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
       for (const [idx, activity] of activities.entries()) {
         const stream = streams.get(activity.id)
         if (!stream || !stream.distance || !stream.time) continue
-        const points = computeBestSplitCurve(stream.distance, stream.time)
+        const timeData = timeMode === 'moving'
+          ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
+          : stream.time
+        const points = computeBestSplitCurve(stream.distance, timeData)
         if (points.length > 0) {
           const color = colorMap?.get(activity.id) ?? colorScale(String(idx))
           splitSeries.push({ id: activity.id, name: activity.name, color, points })
@@ -682,13 +701,16 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         return
       }
 
-      // X-axis: window size up to the shortest run distance
+      // X-axis: window size from 100 m up to the shortest run distance
+      // (skip sub-100m windows — GPS noise often produces artifically fast readings)
+      const MIN_WINDOW_M = 100
       const shortestDist = Math.min(...splitSeries.map(s => s.points[s.points.length - 1].windowDist))
-      const xScale = d3.scaleLinear().domain([0, shortestDist]).range([0, innerW])
+      const xScale = d3.scaleLinear().domain([MIN_WINDOW_M, shortestDist]).range([0, innerW])
       xScaleRef.current = xScale
 
       // Y-axis: pace (inverted: faster = lower value = higher on chart)
-      const allPaces = splitSeries.flatMap(s => s.points.map(p => p.bestPace))
+      // Only consider points at or beyond 100 m for the axis domain
+      const allPaces = splitSeries.flatMap(s => s.points.filter(p => p.windowDist >= MIN_WINDOW_M).map(p => p.bestPace))
       const minPace = d3.min(allPaces)!
       const maxPace = d3.max(allPaces)!
       const yScale = d3.scaleLinear()
@@ -749,44 +771,8 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
         .curve(d3.curveLinear)
 
       splitSeries.forEach((s) => {
-        // Hit area
-        plotGroup.append('path')
-          .datum(s.points)
-          .attr('fill', 'none')
-          .attr('stroke', 'transparent')
-          .attr('stroke-width', 12)
-          .attr('d', lineGen)
-          .style('cursor', 'pointer')
-          .on('mouseenter', function () {
-            if (tooltip) {
-              tooltip.style.display = 'block'
-              tooltip.style.borderColor = s.color
-              tooltip.textContent = s.name
-            }
-          })
-          .on('mousemove', function (event) {
-            if (!tooltip) return
-            const [mx, my] = d3.pointer(event, containerRef.current!)
-            const xVal = xScale.invert(mx - MARGIN.left)
-            if (s.points.length > 0) {
-              const closest = s.points.reduce((best, p) =>
-                Math.abs(p.windowDist - xVal) < Math.abs(best.windowDist - xVal) ? p : best
-              )
-              const distFmt = `${metresToDisplayUnit(closest.windowDist, units).toFixed(2)} ${distanceUnit(units)}`
-              const { bestPace } = closest
-              const paceDisplay = paceToDisplayUnit(bestPace, units)
-              const paceFmt = `${Math.floor(paceDisplay / 60)}:${String(Math.round(paceDisplay % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
-              tooltip.textContent = `${s.name} | ${distFmt} | ${paceFmt}`
-            }
-            tooltip.style.left = `${mx + 14}px`
-            tooltip.style.top = `${my - 10}px`
-          })
-          .on('mouseleave', function () {
-            if (tooltip) tooltip.style.display = 'none'
-          })
-
-        // Visible line
-        plotGroup.append('path')
+        // Visible line (appended first so hit area sits on top)
+        const visiblePath = plotGroup.append('path')
           .datum(s.points)
           .attr('class', 'series-line')
           .attr('data-id', String(s.id))
@@ -796,6 +782,57 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
           .attr('opacity', 0.8)
           .style('pointer-events', 'none')
           .attr('d', lineGen)
+
+        // Hit area
+        plotGroup.append('path')
+          .datum(s.points)
+          .attr('fill', 'none')
+          .attr('stroke', 'transparent')
+          .attr('stroke-width', 24)
+          .attr('d', lineGen)
+          .style('cursor', 'pointer')
+          .on('mouseenter', function () {
+            visiblePath.attr('stroke-width', 3).attr('opacity', 1)
+            if (tooltip) {
+              tooltip.style.display = 'block'
+              tooltip.style.borderColor = s.color
+              tooltip.textContent = s.name
+            }
+          })
+          .on('mousemove', function (event) {
+            const [mx, my] = d3.pointer(event, containerRef.current!)
+            const xVal = xScale.invert(mx - MARGIN.left)
+            const clampedX = Math.max(0, Math.min(innerW, mx - MARGIN.left))
+            // Remove previous dot
+            g.selectAll('.bs-cursor-dot').remove()
+            if (s.points.length > 0) {
+              const closest = s.points.reduce((best, p) =>
+                Math.abs(p.windowDist - xVal) < Math.abs(best.windowDist - xVal) ? p : best
+              )
+              const dotY = yScale(closest.bestPace)
+              g.append('circle')
+                .attr('class', 'bs-cursor-dot')
+                .attr('cx', clampedX).attr('cy', dotY)
+                .attr('r', 4).attr('fill', s.color)
+                .attr('stroke', 'white').attr('stroke-width', 1.5)
+                .style('pointer-events', 'none')
+              if (tooltip) {
+                const distFmt = `${metresToDisplayUnit(closest.windowDist, units).toFixed(2)} ${distanceUnit(units)}`
+                const paceDisplay = paceToDisplayUnit(closest.bestPace, units)
+                const paceFmt = `${Math.floor(paceDisplay / 60)}:${String(Math.round(paceDisplay % 60)).padStart(2, '0')} /${paceUnit(units).replace('min/', '')}`
+                tooltip.textContent = `${s.name} | ${distFmt} | ${paceFmt}`
+              }
+            }
+            if (tooltip) {
+              tooltip.style.left = `${mx + 14}px`
+              tooltip.style.top = `${my - 10}px`
+            }
+          })
+          .on('mouseleave', function () {
+            visiblePath.attr('stroke-width', 1.5).attr('opacity', 0.8)
+            g.selectAll('.bs-cursor-dot').remove()
+            if (tooltip) tooltip.style.display = 'none'
+          })
       })
 
       return
@@ -1056,7 +1093,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
             const actColor = colorMap?.get(s.id) ?? colorScale(String(actIdx))
             plotGroup.append('path')
               .datum(s.points)
-              .attr('fill', 'none').attr('stroke', 'transparent').attr('stroke-width', 12)
+              .attr('fill', 'none').attr('stroke', 'transparent').attr('stroke-width', 24)
               .attr('d', deltaLineGen).style('cursor', 'pointer')
               .on('mouseenter', function () {
                 if (tooltip) { tooltip.style.display = 'block'; tooltip.style.borderColor = actColor; tooltip.textContent = s.name }
@@ -1294,7 +1331,7 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
             .datum(s.points)
             .attr('fill', 'none')
             .attr('stroke', 'transparent')
-            .attr('stroke-width', 12)
+            .attr('stroke-width', 24)
             .attr('d', lineGen)
             .style('cursor', 'pointer')
             .on('mouseenter', function () {
@@ -1340,12 +1377,21 @@ export function SeriesPlot({ activities, streams, loading, colorMap, athlete, ba
                 }
                 tooltip.textContent = valStr
               }
-              // Crosshair vertical line
+              // Crosshair vertical line + cursor dot
               crosshairGroup.selectAll('*').remove()
               crosshairGroup.append('line')
                 .attr('x1', clampedX).attr('x2', clampedX)
                 .attr('y1', 0).attr('y2', innerH)
                 .attr('stroke', '#9ca3af').attr('stroke-dasharray', '3,3').attr('stroke-width', 1)
+              if (s.points.length > 0) {
+                const closestPt = s.points.reduce((best, p) =>
+                  Math.abs(p.x - xDataVal) < Math.abs(best.x - xDataVal) ? p : best
+                )
+                crosshairGroup.append('circle')
+                  .attr('cx', clampedX).attr('cy', channelYScale(closestPt.y))
+                  .attr('r', 4).attr('fill', actColor)
+                  .attr('stroke', 'white').attr('stroke-width', 1.5)
+              }
               // Map link: find closest stream index
               const stream = streams.get(s.id)
               const xArr = xMetric === 'distance' ? stream?.distance : stream?.time
@@ -1738,7 +1784,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
         .datum(s.points)
         .attr('fill', 'none')
         .attr('stroke', 'transparent')
-        .attr('stroke-width', 12)
+        .attr('stroke-width', 24)
         .attr('d', lineGen)
         .style('cursor', 'pointer')
         .on('mouseenter', function (event) {
@@ -2052,6 +2098,53 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
     }
   }, [channels, onChannelsChange])
 
+  const handleExportBestSplit = useCallback(() => {
+    // Two CSV files: raw stream data (to verify fast intervals are captured)
+    // and the computed best split curve (to verify algorithm output).
+    function download(content: string, filename: string) {
+      const blob = new Blob([content], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    const streamRows = ['activityId,activityName,sampleIndex,time_s,distance_m,pace_s_per_km,velocity_smooth_pace_s_per_km']
+    const curveRows = ['activityId,activityName,windowDist_m,bestPace_s_per_km']
+
+    for (const activity of activities) {
+      const stream = streams.get(activity.id)
+      if (!stream?.distance || !stream?.time) continue
+      const timeData = timeMode === 'moving'
+        ? buildMovingTime(stream.time, stream.moving, stream.velocity_smooth)
+        : stream.time
+      const n = Math.min(stream.distance.length, timeData.length)
+      const name = JSON.stringify(activity.name)
+      for (let i = 0; i < n; i++) {
+        // Derive pace from consecutive distance/time deltas (s/km)
+        let derivedPace = ''
+        if (i > 0) {
+          const dd = stream.distance[i] - stream.distance[i - 1]
+          const dt = timeData[i] - timeData[i - 1]
+          if (dd > 0 && dt > 0) derivedPace = ((dt / dd) * 1000).toFixed(1)
+        }
+        // velocity_smooth is in m/s — convert to s/km
+        const vs = stream.velocity_smooth?.[i]
+        const vsPace = vs && vs > 0 ? ((1 / vs) * 1000).toFixed(1) : ''
+        streamRows.push(`${activity.id},${name},${i},${timeData[i]},${stream.distance[i]},${derivedPace},${vsPace}`)
+      }
+      const pts = computeBestSplitCurve(stream.distance, timeData)
+      for (const pt of pts) {
+        curveRows.push(`${activity.id},${name},${pt.windowDist.toFixed(1)},${pt.bestPace.toFixed(1)}`)
+      }
+    }
+
+    download(streamRows.join('\n'), 'stream_data.csv')
+    download(curveRows.join('\n'), 'best_split_curve.csv')
+  }, [activities, streams, timeMode])
+
   return (
     <div className="flex flex-col h-full select-none">
       {/* Controls */}
@@ -2069,6 +2162,16 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             {m === 'bestsplit' ? 'Best Split' : 'Pace CDF'}
           </button>
         ))}
+
+        {yMetric === 'bestsplit' && (
+          <button
+            onClick={handleExportBestSplit}
+            className="px-2 py-0.5 text-xs rounded border transition-colors border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500"
+            title="Download stream_data.csv and best_split_curve.csv for the rostered activities"
+          >
+            Export CSV
+          </button>
+        )}
 
         {yMetric !== 'bestsplit' && yMetric !== 'pacecdf' && multiChannel ? (
           /* ── Multi-channel controls ──────────────────────────────────── */
@@ -2169,7 +2272,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 dark:text-gray-400">Y:</span>
-          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as YMetric[]).map((m) => (
+          {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as YMetric[]).sort((a, b) => METRIC_SHORT[a].localeCompare(METRIC_SHORT[b])).map((m) => (
             <button
               key={m}
               onClick={() => setYMetric(m)}
@@ -2177,7 +2280,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
                 yMetric === m ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
               }`}
             >
-              {m === 'cumulative' ? 'cumul.' : m === 'delta' ? 'Δ delta' : m}
+              {METRIC_SHORT[m]}
             </button>
           ))}
         </div>
@@ -2186,9 +2289,8 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
           <span className="text-xs text-gray-400 dark:text-gray-500 italic">Channel config not available in this mode</span>
         ) : null}
 
-        {/* ── Shared controls (X-axis, time mode) — hidden in best split and pacecdf modes ── */}
+        {/* ── Shared controls (X-axis, time mode) ── */}
         {!isBestSplitMode && yMetric !== 'pacecdf' && (
-          <>
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 dark:text-gray-400">X:</span>
           {(['distance', 'time'] as XMetric[]).map((m) => (
@@ -2203,6 +2305,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
+        )}
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500 dark:text-gray-400">time:</span>
           {(['moving', 'elapsed'] as const).map((m) => (
@@ -2217,8 +2320,6 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
             </button>
           ))}
         </div>
-          </>
-        )}
 
         {!multiChannel && !isBestSplitMode && (
           /* ── Single-metric-only controls (scale, WMA) ─────────────────── */
@@ -2313,7 +2414,7 @@ const series: { id: number; name: string; points: Point[]; oobPoints: Point[] }[
               className="text-xs border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 dark:text-gray-200"
               style={{ color: chColor }}
             >
-              {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).map((m) => (
+              {(['cumulative', 'rolling', 'raw', 'heartrate', 'elevation', 'cadence', 'delta'] as SeriesMetric[]).sort((a, b) => METRIC_SHORT[a].localeCompare(METRIC_SHORT[b])).map((m) => (
                 <option key={m} value={m}>{METRIC_SHORT[m]}</option>
               ))}
             </select>

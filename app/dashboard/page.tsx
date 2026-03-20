@@ -406,6 +406,7 @@ export default function Dashboard() {
         <LongitudinalPlot
           activities={filteredActivities}
           units={athlete?.units ?? 'metric'}
+          isDark={isDark}
         />
       )
     }

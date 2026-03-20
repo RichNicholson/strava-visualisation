@@ -16,6 +16,7 @@ const DOT_COLOR = '#9ca3af'  // gray-400
 interface LongitudinalPlotProps {
   activities: StravaActivity[]
   units: UnitSystem
+  isDark?: boolean
 }
 
 const DISTANCE_OPTIONS = [
@@ -32,7 +33,7 @@ const WINDOW_OPTIONS = [
   { label: 'All', value: 0 },
 ] as const
 
-export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
+export function LongitudinalPlot({ activities, units, isDark = false }: LongitudinalPlotProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [targetDistance, setTargetDistance] = useState(5000)
@@ -63,6 +64,10 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
 
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
+
+    const gridColor = isDark ? '#374151' : '#e5e7eb'
+    const labelColor = isDark ? '#9ca3af' : '#6b7280'
+    const tickColor = isDark ? '#9ca3af' : '#6b7280'
 
     const container = containerRef.current
     const width = container.clientWidth
@@ -102,23 +107,26 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
       .attr('class', 'grid-x')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(xScale).ticks(8).tickSize(-innerH).tickFormat(() => ''))
-      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
     g.append('g')
       .attr('class', 'grid-y')
       .call(d3.axisLeft(yScale).ticks(8).tickSize(-innerW).tickFormat(() => ''))
-      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', '#e5e7eb') })
+      .call((gr) => { gr.select('.domain').remove(); gr.selectAll('line').attr('stroke', gridColor) })
 
     // X axis
     g.append('g')
       .attr('transform', `translate(0,${innerH})`)
       .call(d3.axisBottom(xScale).ticks(8))
-      .call((ax) =>
+      .call((ax) => {
+        ax.selectAll('text').attr('fill', tickColor)
+        ax.select('.domain').attr('stroke', tickColor)
+        ax.selectAll('line').attr('stroke', tickColor)
         ax.append('text')
           .attr('x', innerW / 2).attr('y', 40)
-          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+          .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
           .text('Date')
-      )
+      })
 
     // Y axis — pace format
     const yLabel = `Pace (${paceUnit(units)})`
@@ -129,13 +137,16 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(8).tickFormat(paceFmt as never))
-      .call((ax) =>
+      .call((ax) => {
+        ax.selectAll('text').attr('fill', tickColor)
+        ax.select('.domain').attr('stroke', tickColor)
+        ax.selectAll('line').attr('stroke', tickColor)
         ax.append('text')
           .attr('transform', 'rotate(-90)')
           .attr('x', -innerH / 2).attr('y', -55)
-          .attr('fill', '#6b7280').attr('text-anchor', 'middle').attr('font-size', '12px')
+          .attr('fill', labelColor).attr('text-anchor', 'middle').attr('font-size', '12px')
           .text(yLabel)
-      )
+      })
 
     // Individual qualifying run dots
     g.selectAll('circle.dot')
@@ -165,20 +176,45 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
         setTooltip(null)
       })
 
-    // Rolling best step curve
+    // Rolling best step curve — split into segments wherever the gap between
+    // consecutive qualifying runs exceeds the window period (i.e. the window
+    // would have been empty, so there is no valid rolling best to show).
     const lineGen = d3.line<typeof rollingData[number]>()
       .x((d) => xScale(new Date(d.activity.start_date)))
       .y((d) => yScale(paceToDisplayUnit(d.rollingBestPace, units)))
       .curve(d3.curveLinear)
 
-    g.append('path')
-      .datum(rollingData)
-      .attr('fill', 'none')
-      .attr('stroke', CURVE_COLOR)
-      .attr('stroke-width', 2.5)
-      .attr('d', lineGen)
+    type RollingEntry = typeof rollingData[number]
+    const segments: RollingEntry[][] = []
+    if (rollingData.length > 0) {
+      let current: RollingEntry[] = [rollingData[0]]
+      for (let i = 1; i < rollingData.length; i++) {
+        const prev = new Date(rollingData[i - 1].activity.start_date)
+        const curr = new Date(rollingData[i].activity.start_date)
+        const gapMonths =
+          (curr.getFullYear() - prev.getFullYear()) * 12 +
+          (curr.getMonth() - prev.getMonth())
+        if (windowMonths > 0 && gapMonths > windowMonths) {
+          segments.push(current)
+          current = [rollingData[i]]
+        } else {
+          current.push(rollingData[i])
+        }
+      }
+      segments.push(current)
+    }
 
-    // Rolling best dots — only for runs that actually set the rolling best
+    segments.forEach((seg) => {
+      g.append('path')
+        .datum(seg)
+        .attr('fill', 'none')
+        .attr('stroke', CURVE_COLOR)
+        .attr('stroke-width', 2.5)
+        .attr('d', lineGen)
+    })
+
+    // Rolling best dots — highlight runs that were ever the defining best
+    // Plotted at the activity's actual pace (not the rolling best value)
     const definingIds = new Set(rollingData.map((d) => d.definingActivity.id))
     const bestSetters = rollingData.filter((d) => definingIds.has(d.activity.id))
     g.selectAll('circle.best')
@@ -186,7 +222,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
       .join('circle')
       .attr('class', 'best')
       .attr('cx', (d) => xScale(new Date(d.activity.start_date)))
-      .attr('cy', (d) => yScale(paceToDisplayUnit(d.rollingBestPace, units)))
+      .attr('cy', (d) => yScale(paceToDisplayUnit(1000 / getSpeed(d.activity), units)))
       .attr('r', 5)
       .attr('fill', CURVE_COLOR)
       .attr('stroke', 'white')
@@ -208,7 +244,7 @@ export function LongitudinalPlot({ activities, units }: LongitudinalPlotProps) {
         setTooltip(null)
       })
 
-  }, [rollingData, units, getSpeed])
+  }, [rollingData, units, getSpeed, isDark])
 
   return (
     <div className="flex flex-col h-full select-none">

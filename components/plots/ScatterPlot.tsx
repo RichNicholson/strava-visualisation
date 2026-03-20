@@ -32,9 +32,12 @@ function contourColors(grades: number[]): string[] {
 const MARGIN = { top: 20, right: 80, bottom: 50, left: 70 }
 
 // X-axis and color metric options (exclude derived age_grade which requires athlete context)
-const METRIC_OPTIONS = (Object.entries(METRIC_LABELS) as [MetricKey, string][]).filter(([k]) => k !== 'age_grade')
+const METRIC_OPTIONS = (Object.entries(METRIC_LABELS) as [MetricKey, string][])
+  .filter(([k]) => k !== 'age_grade')
+  .sort(([, a], [, b]) => a.localeCompare(b))
 // Y-axis also offers age_grade
 const Y_AXIS_OPTIONS: [MetricKey, string][] = [...METRIC_OPTIONS, ['age_grade', METRIC_LABELS.age_grade]]
+  .sort(([, a], [, b]) => a.localeCompare(b))
 
 export interface ScatterViewState {
   xAxis: MetricKey
@@ -228,8 +231,8 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           .text(yLabel)
       })
 
-    // WMA contours (distance × average_pace only)
-    const wmaApplicable = showWMA && xAxis === 'distance' && yAxis === 'average_pace' && athlete?.sex && (athlete?.dateOfBirth || athlete?.age)
+    // WMA contours (distance × pace axes)
+    const wmaApplicable = showWMA && xAxis === 'distance' && (yAxis === 'average_pace' || yAxis === 'elapsed_pace') && athlete?.sex && (athlete?.dateOfBirth || athlete?.age)
     if (wmaApplicable && showWMAContours) {
       // xScale domain is in display units (km or mi); convert back to metres for WMA
       const displayToMetres = units === 'imperial' ? 1609.344 : 1000
@@ -572,7 +575,7 @@ export function ScatterPlot({ activities, athlete, showWMA = true, roster, onTog
           )}
 
           {/* WMA toggle */}
-          {showWMA && xAxis === 'distance' && yAxis === 'average_pace' && (
+          {showWMA && xAxis === 'distance' && (yAxis === 'average_pace' || yAxis === 'elapsed_pace') && (
             (athlete?.dateOfBirth || athlete?.age) && athlete?.sex ? (
               <button
                 onClick={() => setShowWMAContours((v) => !v)}
