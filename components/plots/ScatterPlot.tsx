@@ -36,7 +36,7 @@ const METRIC_OPTIONS = (Object.entries(METRIC_LABELS) as [MetricKey, string][])
   .filter(([k]) => k !== 'age_grade')
   .sort(([, a], [, b]) => a.localeCompare(b))
 // Y-axis also offers age_grade
-const Y_AXIS_OPTIONS: [MetricKey, string][] = [...METRIC_OPTIONS, ['age_grade', METRIC_LABELS.age_grade]]
+const Y_AXIS_OPTIONS = ([...METRIC_OPTIONS, ['age_grade', METRIC_LABELS.age_grade]] as [MetricKey, string][])
   .sort(([, a], [, b]) => a.localeCompare(b))
 
 export interface ScatterViewState {
