@@ -13,11 +13,11 @@ const KEY = 'strava-filter-presets'
 /** Fill in any fields added after a preset was saved so old presets stay valid. */
 function migrateFilter(f: FilterState): FilterState {
   return {
-    elevationGain: null,
-    sufferScore: null,
-    movingTime: null,
-    elapsedTime: null,
     ...f,
+    elevationGain: f.elevationGain ?? null,
+    sufferScore: f.sufferScore ?? null,
+    movingTime: f.movingTime ?? null,
+    elapsedTime: f.elapsedTime ?? null,
   }
 }
 
