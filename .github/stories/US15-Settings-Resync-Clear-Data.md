@@ -17,3 +17,7 @@
 - Relevant files: `app/dashboard/SettingsPanel.tsx` (add buttons), `lib/db/schema.ts` (add a `clearAll()` helper), `hooks/useStravaSync.ts` (add a `fullResync` option that ignores `last_synced`), `lib/db/sync.ts`
 - Re-sync should reset `athlete.last_synced` to null before starting, causing the sync to fetch everything
 - Clear data should call `db.delete()` or clear each table, then redirect to `/`
+
+## Completed
+
+**2026-03-08** — Added "Re-sync all" and "Clear data" buttons to SettingsPanel with inline confirmation flow; added `clearAll()` helper to `lib/db/schema.ts`; wired `onFullResync` prop through to `startSync(true)` in the dashboard.

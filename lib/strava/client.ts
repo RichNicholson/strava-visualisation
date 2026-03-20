@@ -39,7 +39,7 @@ export async function fetchActivityStreams(
   accessToken: string,
   activityId: number
 ): Promise<unknown> {
-  const keys = ['time', 'distance', 'latlng', 'altitude', 'heartrate', 'velocity_smooth', 'cadence']
+  const keys = ['time', 'distance', 'latlng', 'altitude', 'heartrate', 'velocity_smooth', 'cadence', 'moving']
   const params = new URLSearchParams({
     keys: keys.join(','),
     key_by_type: 'true',

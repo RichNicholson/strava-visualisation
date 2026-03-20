@@ -9,7 +9,15 @@ export function useStravaSync() {
 
   const startSync = useCallback(async (forceFullSync = false) => {
     const token = getAccessToken()
-    if (!token) return
+    if (!token) {
+      setProgress({
+        phase: 'error',
+        activitiesFetched: 0,
+        importedActivities: [],
+        error: 'UNAUTHORIZED',
+      })
+      return
+    }
 
     setIsSyncing(true)
     try {
@@ -18,6 +26,7 @@ export function useStravaSync() {
       setProgress({
         phase: 'error',
         activitiesFetched: 0,
+        importedActivities: [],
         error: err instanceof Error ? err.message : 'Unknown error',
       })
     } finally {
@@ -25,5 +34,7 @@ export function useStravaSync() {
     }
   }, [])
 
-  return { progress, isSyncing, startSync }
+  const clearProgress = useCallback(() => setProgress(null), [])
+
+  return { progress, isSyncing, startSync, clearProgress }
 }

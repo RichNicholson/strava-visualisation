@@ -15,3 +15,7 @@
 - Relevant files: `components/roster/RosterPanel.tsx`
 - The activity `id` maps directly to the Strava URL — no API call needed
 - Use `target="_blank"` and `rel="noopener noreferrer"` on the link
+
+## Completed
+
+**2026-03-07** — Added Strava external-link icon to each roster entry in `RosterPanel.tsx`. Link opens `https://www.strava.com/activities/{id}` in a new tab; `stopPropagation` prevents interference with row selection.

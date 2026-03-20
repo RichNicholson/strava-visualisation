@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>US10 – Layout v2: Channels · Workbooks · Multi-view Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family:system-ui,sans-serif; background:#f9fafb; }
+
+  /* ── typography / layout ────── */
+  .section-heading { font-size:13px; font-weight:700; color:#111827; }
+  .section-sub     { font-size:11px; color:#6b7280; margin-top:2px; }
+  .card  { background:white; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.05); overflow:hidden; }
+  .panel-section { padding:20px 24px; }
+  .panel-section + .panel-section { border-top:1px solid #f3f4f6; }
+
+  .concept-tag { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:600; letter-spacing:.03em; }
+  .tag-a { background:#dbeafe; color:#1d4ed8; }
+  .tag-b { background:#f3e8ff; color:#7e22ce; }
+  .tag-c { background:#dcfce7; color:#166534; }
+  .tag-d { background:#fef3c7; color:#92400e; }
+
+  .pro  { color:#16a34a; }
+  .con  { color:#dc2626; }
+  .note { color:#6b7280; }
+
+  /* ── app shell components ───── */
+  .app-shell { display:flex; flex-direction:column; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#f1f5f9; }
+  .topbar { background:white; border-bottom:1px solid #e5e7eb; padding:5px 12px; display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .logo   { font-weight:700; color:#f97316; font-size:13px; }
+  .app-body { display:flex; flex:1; min-height:0; overflow:hidden; }
+  .sidebar  { width:110px; flex-shrink:0; border-right:1px solid #e5e7eb; background:white; padding:8px; font-size:10px; }
+  .s-label  { font-size:8.5px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px; }
+  .s-pill   { background:#f3f4f6; border-radius:3px; padding:2px 5px; color:#6b7280; font-size:9px; margin-bottom:2px; display:block; }
+  .r-dot    { display:inline-block; width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+
+  /* seg buttons */
+  .seg { display:flex; overflow:hidden; border:1px solid #e5e7eb; border-radius:5px; }
+  .seg button { padding:3px 9px; font-size:10px; font-weight:500; color:#6b7280; background:white; border:none; cursor:pointer; transition:background .1s; white-space:nowrap; }
+  .seg button.active { background:#f97316; color:white; }
+  .seg button:hover:not(.active) { background:#fff7ed; color:#f97316; }
+  .seg button + button { border-left:1px solid #e5e7eb; }
+
+  .btn-xs { padding:2px 8px; font-size:10px; border-radius:4px; border:1px solid #e5e7eb; background:white; cursor:pointer; color:#6b7280; white-space:nowrap; }
+  .btn-xs:hover { background:#f9fafb; }
+  .btn-xs.active { background:#f97316; color:white; border-color:#f97316; }
+  .btn-xs.purple { background:#7c3aed; color:white; border-color:#7c3aed; }
+  .btn-xs.purple:hover { background:#6d28d9; }
+
+  /* view panels */
+  .view-panel { background:white; border:1px solid #d1d5db; border-radius:5px; display:flex; flex-direction:column; overflow:hidden; position:relative; min-height:0; }
+  .view-header { background:#f9fafb; border-bottom:1px solid #f3f4f6; padding:3px 7px; display:flex; align-items:center; gap:5px; font-size:10px; flex-shrink:0; }
+  .view-body   { flex:1; position:relative; overflow:hidden; display:flex; align-items:stretch; min-height:0; }
+
+  .badge { font-size:8px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:1px 4px; border-radius:3px; }
+  .b-sc  { background:#dbeafe; color:#1e40af; }
+  .b-sr  { background:#dcfce7; color:#166534; }
+  .b-mp  { background:#fef3c7; color:#92400e; }
+  .b-tb  { background:#f3e8ff; color:#7e22ce; }
+
+  /* view-type tabs inside a panel */
+  .panel-tabs { display:flex; border-bottom:1px solid #e5e7eb; background:white; }
+  .panel-tab  { padding:3px 9px; font-size:10px; color:#9ca3af; cursor:pointer; border-bottom:2px solid transparent; transition:all .1s; }
+  .panel-tab.active  { color:#f97316; border-bottom-color:#f97316; font-weight:600; }
+  .panel-tab:hover:not(.active) { color:#f97316; }
+
+  /* ── channel editor ─────────── */
+  .ch-row { display:flex; align-items:center; gap:8px; padding:7px 8px; border:1px solid #e5e7eb; border-radius:6px; background:white; margin-bottom:5px; }
+  .ch-swatch { width:10px; height:32px; border-radius:3px; flex-shrink:0; }
+  .ch-label  { font-size:10px; font-weight:600; color:#374151; width:56px; flex-shrink:0; }
+  .ch-ytrack { position:relative; width:16px; height:80px; background:#f3f4f6; border-radius:3px; flex-shrink:0; border:1px solid #e5e7eb; }
+  .ch-yband  { position:absolute; left:0; right:0; border-radius:2px; }
+  .ch-yhandle { position:absolute; left:-2px; right:-2px; height:4px; background:#374151; border-radius:2px; cursor:ns-resize; }
+  .ch-yhandle:hover { background:#f97316; }
+  .scale-input { width:40px; font-size:10px; border:1px solid #e5e7eb; border-radius:3px; padding:2px 4px; text-align:right; }
+  .scale-input:focus { outline:none; border-color:#f97316; }
+  .scale-auto { display:inline-flex; align-items:center; gap:3px; font-size:9px; color:#6b7280; cursor:pointer; }
+  .scale-auto input { accent-color:#f97316; }
+
+  /* channel track legend */
+  .y-track-legend { position:absolute; left:16px; width:22px; height:100%; pointer-events:none; }
+
+  /* ── preset / workbook selectors ── */
+  .preset-row { display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:5px; cursor:pointer; font-size:10px; }
+  .preset-row:hover { background:#fff7ed; }
+  .preset-row.active-preset { background:#fff7ed; font-weight:600; color:#ea580c; }
+  .preset-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; background:#e5e7eb; }
+  .preset-dot.orange { background:#f97316; }
+  .preset-dot.purple { background:#7c3aed; }
+
+  /* workbook card */
+  .workbook-card { border:1px solid #e5e7eb; border-radius:6px; padding:8px 10px; cursor:pointer; transition:border-color .1s, box-shadow .1s; }
+  .workbook-card:hover { border-color:#f97316; box-shadow:0 0 0 2px #ffedd5; }
+  .workbook-card.wk-active { border-color:#7c3aed; box-shadow:0 0 0 2px #ede9fe; }
+  .workbook-name { font-size:11px; font-weight:600; color:#374151; }
+  .workbook-meta { font-size:9px; color:#9ca3af; margin-top:2px; }
+  .workbook-tag  { display:inline-block; padding:1px 5px; border-radius:10px; font-size:8px; font-weight:600; margin-top:3px; margin-right:2px; }
+  .wk-filter  { background:#fff7ed; color:#ea580c; }
+  .wk-layout  { background:#ede9fe; color:#7c3aed; }
+
+  /* save popover */
+  .save-popover { position:absolute; z-index:20; background:white; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.12); padding:12px; width:220px; }
+
+  /* ── multi-view manager ─────── */
+  .mv-grid { display:grid; gap:4px; }
+  .mv-cell { border:1px dashed #d1d5eb; border-radius:4px; background:#f8fafc; display:flex; align-items:center; justify-content:center; font-size:9px; color:#9ca3af; cursor:pointer; transition:all .1s; min-height:36px; position:relative; }
+  .mv-cell.occupied { background:white; border:1px solid #d1d5eb; color:#374151; font-size:9px; font-weight:600; }
+  .mv-cell.occupied:hover { border-color:#f97316; }
+  .mv-cell:not(.occupied):hover { background:#fff7ed; border-color:#fdba74; color:#f97316; }
+  .mv-spanners { position:absolute; top:2px; right:2px; display:flex; gap:1px; }
+  .mv-spanner  { font-size:7px; background:#f3f4f6; border-radius:2px; padding:0 2px; color:#9ca3af; cursor:pointer; }
+  .mv-spanner:hover { background:#f97316; color:white; }
+
+  /* info callout */
+  .callout { border-radius:6px; padding:8px 12px; font-size:10px; line-height:1.6; }
+  .callout-amber { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+  .callout-blue  { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+  .callout-purple{ background:#f5f3ff; border:1px solid #ddd6fe; color:#5b21b6; }
+</style>
+</head>
+<body class="py-10 px-6">
+<div class="max-w-5xl mx-auto space-y-10">
+
+<div>
+  <h1 class="text-2xl font-bold text-gray-900">US10 – Layout v2</h1>
+  <p class="text-sm text-gray-500 mt-1">Channels with axis positioning · Saveable layout presets · Workbooks · Multi-view layout manager</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION 1 — The Channel Model
+     ══════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="panel-section">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="concept-tag tag-a">1</span>
+      <div>
+        <p class="section-heading">Channel model — per-metric axis position + scale</p>
+        <p class="section-sub">Each metric in a Series panel is a "channel". Channels are independently positioned and scaled within the plot area using percentages (0% = top, 100% = bottom). Channels can overlap or be stacked.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="grid grid-cols-[260px_1fr] gap-6">
+
+      <!-- Channel Editor -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-2">Channel editor</p>
+
+        <!-- Pace channel -->
+        <div class="ch-row">
+          <div class="ch-swatch" style="background:#c2410c"></div>
+          <div>
+            <div class="ch-label">Pace</div>
+            <div class="scale-auto"><input type="checkbox" checked id="paceAuto" onchange="updatePaceAuto()"/> auto scale</div>
+          </div>
+          <div class="flex flex-col items-center gap-1">
+            <span style="font-size:8px;color:#9ca3af">top%</span>
+            <input class="scale-input" id="paceTop" value="50" oninput="updateChannel()" style="width:34px"/>
+            <div class="ch-ytrack" id="paceTrack" title="Drag handles to resize band">
+              <div class="ch-yband" id="paceBand" style="top:50%; height:50%; background:#fef3c7; border:1px solid #fde68a;"></div>
+              <div class="ch-yhandle" id="paceHandleT" style="top:calc(50% - 2px)"></div>
+              <div class="ch-yhandle" id="paceHandleB" style="top:calc(100% - 2px)"></div>
+            </div>
+            <input class="scale-input" id="paceBot" value="100" oninput="updateChannel()" style="width:34px"/>
+            <span style="font-size:8px;color:#9ca3af">bot%</span>
+          </div>
+          <div class="text-xs text-gray-400 space-y-1" id="paceScaleFixed" style="display:none">
+            <div><input class="scale-input" placeholder="max" id="paceMax" value="360"/> <span style="font-size:8px">s/km hi</span></div>
+            <div><input class="scale-input" placeholder="min" id="paceMin" value="180"/> <span style="font-size:8px">s/km lo</span></div>
+          </div>
+        </div>
+
+        <!-- HR channel -->
+        <div class="ch-row">
+          <div class="ch-swatch" style="background:#dc2626"></div>
+          <div>
+            <div class="ch-label">Heart Rate</div>
+            <div class="scale-auto"><input type="checkbox" id="hrAuto" checked onchange="updateHRAuto()"/> auto scale</div>
+          </div>
+          <div class="flex flex-col items-center gap-1">
+            <span style="font-size:8px;color:#9ca3af">top%</span>
+            <input class="scale-input" id="hrTop" value="0" oninput="updateChannel()" style="width:34px"/>
+            <div class="ch-ytrack" id="hrTrack">
+              <div class="ch-yband" id="hrBand" style="top:0%; height:50%; background:#fef2f2; border:1px solid #fca5a5;"></div>
+              <div class="ch-yhandle" id="hrHandleT" style="top:-2px"></div>
+              <div class="ch-yhandle" id="hrHandleB" style="top:calc(50% - 2px)"></div>
+            </div>
+            <input class="scale-input" id="hrBot" value="50" oninput="updateChannel()" style="width:34px"/>
+            <span style="font-size:8px;color:#9ca3af">bot%</span>
+          </div>
+          <div class="text-xs text-gray-400 space-y-1" id="hrScaleFixed" style="display:none">
+            <div><input class="scale-input" placeholder="max" value="190"/> <span style="font-size:8px">bpm hi</span></div>
+            <div><input class="scale-input" placeholder="min" value="130"/> <span style="font-size:8px">bpm lo</span></div>
+          </div>
+        </div>
+
+        <!-- Elevation channel -->
+        <div class="ch-row" id="elevRow" style="display:none">
+          <div class="ch-swatch" style="background:#059669"></div>
+          <div>
+            <div class="ch-label">Elevation</div>
+            <div class="scale-auto"><input type="checkbox" checked/> auto scale</div>
+          </div>
+          <div class="flex flex-col items-center gap-1">
+            <span style="font-size:8px;color:#9ca3af">top%</span>
+            <input class="scale-input" id="elevTop" value="0" oninput="updateChannel()" style="width:34px"/>
+            <div class="ch-ytrack">
+              <div class="ch-yband" style="top:0%; height:100%; background:#d1fae5; border:1px solid #6ee7b7;"></div>
+            </div>
+            <input class="scale-input" id="elevBot" value="100" oninput="updateChannel()" style="width:34px"/>
+            <span style="font-size:8px;color:#9ca3af">bot%</span>
+          </div>
+        </div>
+
+        <button class="btn-xs w-full mt-1 text-center" onclick="toggleElev()">
+          <span id="elevBtnLabel">+ add Elevation channel</span>
+        </button>
+
+        <!-- Preset-style quick configs -->
+        <div class="mt-4 space-y-1">
+          <p class="text-xs font-semibold text-gray-500 mb-1">Quick presets</p>
+          <button class="btn-xs w-full text-left" onclick="applyQuick('pace-hr-stacked')">Pace (bot 50%) + HR (top 50%) — stacked</button>
+          <button class="btn-xs w-full text-left" onclick="applyQuick('pace-hr-overlay')">Pace (100%) + HR (100%) — overlaid</button>
+          <button class="btn-xs w-full text-left" onclick="applyQuick('pace-elev-hr')">Pace (bot 40%) + Elev (top 60%)</button>
+        </div>
+      </div>
+
+      <!-- Live chart preview -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-2">Live preview</p>
+        <div class="view-panel" style="height:280px">
+          <div class="view-header">
+            <span class="badge b-sr">SERIES</span>
+            <span style="color:#9ca3af; font-size:9px">London 2024 · London 2023 · Manchester · X: distance</span>
+          </div>
+          <!-- multi-channel chart body -->
+          <div class="view-body" style="flex-direction:column; position:relative" id="channelPreview">
+            <!-- rendered by JS -->
+          </div>
+        </div>
+        <p class="text-xs text-gray-400 mt-1 italic">Channel bands render in the percentage region you specify. Overlapping bands are drawn with transparency so both are visible.</p>
+      </div>
+
+    </div>
+
+    <!-- Key design points -->
+    <div class="callout callout-blue mt-4">
+      <strong>Channel data model</strong> — each channel stores:
+      <code class="ml-1 text-blue-700">{ metric, yTop: 0–100, yBottom: 0–100, scaleMode: 'auto'|'fixed', scaleMin, scaleMax }</code>.
+      Channels with overlapping y-ranges are rendered with <code>opacity: 0.7</code> and dashed secondary lines.
+      The x-axis (distance or time) is always shared across all channels.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION 2 — Multi-view Layout Manager + tabs-within-panels
+     ══════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="panel-section">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="concept-tag tag-b">2</span>
+      <div>
+        <p class="section-heading">Multi-view layout manager — views, tabs, and the layout grid</p>
+        <p class="section-sub">The dashboard manages N named "views". The layout grid determines how many are visible at once. Each visible view has its own tab selector to switch its type. Tab mode means only one view is visible — the tab bar at the top IS the view selector.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="callout callout-blue mb-4">
+      <strong>Mental model:</strong> You always have a set of configured views (e.g. "Scatter A", "Series B", "Map C"). The layout manager decides how many to show simultaneously.
+      In <em>Tab</em> mode the tabs at the top switch which single view is visible — exactly like today.
+      In <em>Split</em> or <em>Grid</em> mode, each visible slot has its own mini-tab bar so you can switch that slot's view independently.
+    </div>
+
+    <!-- Tab mode -->
+    <p class="text-xs font-medium text-gray-600 mb-2">Layout = <strong>Tab</strong> — single view visible, tab bar switches it</p>
+    <div class="app-shell mb-4" style="height:200px">
+      <div class="topbar">
+        <span class="logo">StravaViz</span>
+        <!-- The top tab bar IS the layout manager in tab mode -->
+        <div class="panel-tabs" style="border:1px solid #e5e7eb; border-radius:5px; overflow:hidden; border-bottom:1px solid #e5e7eb">
+          <div class="panel-tab active" style="border-bottom:2px solid #f97316; color:#f97316; font-weight:600; font-size:10px; padding:4px 10px">Scatter</div>
+          <div class="panel-tab" style="font-size:10px; padding:4px 10px; color:#9ca3af; cursor:pointer">Series</div>
+          <div class="panel-tab" style="font-size:10px; padding:4px 10px; color:#9ca3af; cursor:pointer">Map</div>
+          <div class="panel-tab" style="font-size:10px; padding:4px 10px; color:#9ca3af; cursor:pointer">Table</div>
+          <div class="panel-tab" style="font-size:10px; padding:4px 10px; color:#9ca3af; cursor:pointer; border-left:1px dashed #e5e7eb">+ view</div>
+        </div>
+        <div class="seg ml-2">
+          <button class="active" style="font-size:10px; padding:3px 8px">Tab</button>
+          <button style="font-size:10px; padding:3px 8px">Split</button>
+          <button style="font-size:10px; padding:3px 8px">Grid</button>
+        </div>
+        <div class="ml-auto flex gap-1.5">
+          <button class="btn-xs">Re-sync</button>
+        </div>
+      </div>
+      <div class="app-body overflow-hidden">
+        <div class="sidebar">
+          <div class="s-label">Filters</div><span class="s-pill">Run · 12 mo</span><span class="s-pill">3:30–7:00</span>
+          <div class="s-label mt-2">Roster</div>
+          <div class="flex items-center gap-1 mb-1"><span class="r-dot" style="background:#4e79a7"></span><span>London 24</span></div>
+          <div class="flex items-center gap-1 mb-1"><span class="r-dot" style="background:#f28e2c"></span><span>London 23</span></div>
+        </div>
+        <div class="flex-1 p-2">
+          <div class="view-panel h-full">
+            <div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:11px">
+              Scatter plot — 847 activities
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Split mode -->
+    <p class="text-xs font-medium text-gray-600 mb-2">Layout = <strong>Split</strong> — two slots, each with its own in-panel tab selector</p>
+    <div class="app-shell mb-4" style="height:210px">
+      <div class="topbar">
+        <span class="logo">StravaViz</span>
+        <div class="seg">
+          <button style="font-size:10px; padding:3px 8px">Tab</button>
+          <button class="active" style="font-size:10px; padding:3px 8px">Split</button>
+          <button style="font-size:10px; padding:3px 8px">Grid</button>
+        </div>
+        <div class="ml-auto flex gap-1.5"><button class="btn-xs">Re-sync</button></div>
+      </div>
+      <div class="app-body overflow-hidden">
+        <div class="sidebar">
+          <div class="s-label">Filters</div><span class="s-pill">Run · 12 mo</span>
+          <div class="s-label mt-2">Roster</div>
+          <div class="flex items-center gap-1 mb-1"><span class="r-dot" style="background:#4e79a7"></span><span>London 24</span></div>
+          <div class="flex items-center gap-1"><span class="r-dot" style="background:#f28e2c"></span><span>London 23</span></div>
+        </div>
+        <div class="flex-1 grid grid-cols-2 gap-2 p-2 min-w-0">
+          <!-- Slot A -->
+          <div class="view-panel">
+            <!-- Per-panel tab selector -->
+            <div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb">
+              <div class="panel-tab active" style="font-size:9px; padding:3px 7px">Scatter</div>
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Series</div>
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Map</div>
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Table</div>
+            </div>
+            <div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:10px">Scatter</div>
+          </div>
+          <!-- Slot B -->
+          <div class="view-panel">
+            <div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb">
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Scatter</div>
+              <div class="panel-tab active" style="font-size:9px; padding:3px 7px">Series</div>
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Map</div>
+              <div class="panel-tab" style="font-size:9px; padding:3px 7px; color:#9ca3af">Table</div>
+            </div>
+            <div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:10px">Series (pace + HR channels)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grid mode -->
+    <p class="text-xs font-medium text-gray-600 mb-2">Layout = <strong>Grid</strong> — 2×2, each slot independently tabbed</p>
+    <div class="app-shell" style="height:270px">
+      <div class="topbar">
+        <span class="logo">StravaViz</span>
+        <div class="seg">
+          <button style="font-size:10px; padding:3px 8px">Tab</button>
+          <button style="font-size:10px; padding:3px 8px">Split</button>
+          <button class="active" style="font-size:10px; padding:3px 8px">Grid</button>
+        </div>
+        <div class="ml-auto flex gap-1.5"><button class="btn-xs">Re-sync</button></div>
+      </div>
+      <div class="app-body overflow-hidden">
+        <div class="sidebar">
+          <div class="s-label">Filters</div><span class="s-pill">Marathon</span>
+          <div class="s-label mt-2">Roster</div>
+          <div class="flex items-center gap-1 mb-1"><span class="r-dot" style="background:#4e79a7"></span><span>London 24</span></div>
+          <div class="flex items-center gap-1"><span class="r-dot" style="background:#f28e2c"></span><span>London 23</span></div>
+        </div>
+        <div class="flex-1 grid grid-cols-2 grid-rows-2 gap-1.5 p-2 min-w-0">
+          <div class="view-panel"><div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb"><div class="panel-tab active" style="font-size:9px; padding:2px 6px">Scatter</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Series</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Map</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Table</div></div><div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:9px">Scatter</div></div>
+          <div class="view-panel"><div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb"><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Scatter</div><div class="panel-tab active" style="font-size:9px; padding:2px 6px">Series</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Map</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Table</div></div><div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:9px">Series — Pace+HR</div></div>
+          <div class="view-panel"><div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb"><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Scatter</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Series</div><div class="panel-tab active" style="font-size:9px; padding:2px 6px">Map</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Table</div></div><div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:9px">Map</div></div>
+          <div class="view-panel"><div class="panel-tabs" style="display:flex; border-bottom:1px solid #e5e7eb"><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Scatter</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Series</div><div class="panel-tab" style="font-size:9px; padding:2px 6px; color:#9ca3af">Map</div><div class="panel-tab active" style="font-size:9px; padding:2px 6px">Table</div></div><div class="view-body" style="align-items:center; justify-content:center; color:#d1d5db; font-size:9px">Table</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout callout-blue mt-4">
+      <strong>Key clarification:</strong> In <em>Tab</em> mode the top tab bar selects the single visible view — this is identical to today's UX.
+      In <em>Split/Grid</em> mode the top tab bar is replaced by the layout dial, and each panel gets its <em>own</em> tab bar.
+      A user can always switch any slot to any view type without losing the other slots.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION 3 — Layout Presets (saveable, like filter presets)
+     ══════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="panel-section">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="concept-tag tag-c">3</span>
+      <div>
+        <p class="section-heading">Layout presets — saveable named configurations</p>
+        <p class="section-sub">A Layout Preset captures the layout mode (Tab/Split/Grid), which view type fills each slot, and — for Series slots — the full channel configuration (metric, y-position %, scale mode). Managed exactly like filter presets: stored in localStorage, named, loadable instantly.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="grid grid-cols-[200px_1fr] gap-6">
+
+      <!-- Preset manager (simulated in sidebar) -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-2">Layout preset panel</p>
+        <div class="border border-gray-200 rounded-lg overflow-hidden">
+          <!-- header -->
+          <div class="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <span style="font-size:10px; font-weight:600; color:#374151">Layout presets</span>
+            <button class="btn-xs" id="savePresetBtn" onclick="toggleSavePopover()" style="position:relative">Save current ▾
+              <!-- save popover -->
+              <div id="savePopover" class="save-popover" style="display:none; top:100%; right:0; margin-top:4px">
+                <p style="font-size:11px; font-weight:600; color:#374151; margin-bottom:6px">Save layout as…</p>
+                <input id="presetName" type="text" placeholder="e.g. Race analysis" style="width:100%; font-size:11px; border:1px solid #e5e7eb; border-radius:4px; padding:4px 6px; margin-bottom:6px; box-sizing:border-box"/>
+                <button class="btn-xs w-full" onclick="savePreset()">Save</button>
+              </div>
+            </button>
+          </div>
+          <!-- list -->
+          <div id="presetList" style="padding:4px">
+            <!-- injected by JS -->
+          </div>
+        </div>
+
+        <div class="mt-3 callout callout-purple" style="font-size:9px">
+          Stored in <code>localStorage</code> as <code>layoutPresets[]</code>.
+          Same save/load/delete pattern as filter presets — reuses the same <code>&lt;details&gt;</code> dropdown component pattern.
+        </div>
+      </div>
+
+      <!-- What a preset contains -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-2">What a Layout Preset contains</p>
+        <pre style="font-size:10px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:12px; overflow-x:auto; line-height:1.6; color:#374151">{
+  id:   "lp-race-analysis",
+  name: "Race analysis",
+  layoutMode: "split",
+  slots: [
+    {
+      viewType: "series",
+      channels: [
+        { metric: "pace",      yTop: 50, yBottom: 100, scaleMode: "auto" },
+        { metric: "heartrate", yTop:  0, yBottom:  50, scaleMode: "fixed",
+          scaleMin: 130, scaleMax: 190 }
+      ]
+    },
+    {
+      viewType: "map",
+      channels: []
+    }
+  ]
+}</pre>
+        <p class="text-xs text-gray-400 mt-2 italic">
+          A preset captures the <em>full</em> state of the layout — modes, view types, and channel configs — so loading it restores the exact arrangement.
+          Filter state is <em>not</em> included (that belongs to filter presets or Workbooks).
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION 4 — Workbooks (filter preset + layout preset)
+     ══════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="panel-section">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="concept-tag tag-d">4</span>
+      <div>
+        <p class="section-heading">Workbooks — named filter × layout combinations</p>
+        <p class="section-sub">A Workbook is a named configuration combining a filter preset and a layout preset. Loading one instantly applies both. This is the unit of "task" — e.g. "Marathon race review" captures both what data to show and how to visualise it.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-section">
+    <div class="grid grid-cols-2 gap-6">
+
+      <!-- Workbook selector mockup -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-3">Workbook selector (top bar or settings)</p>
+        <div class="border border-gray-200 rounded-lg overflow-hidden">
+          <div class="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <span style="font-size:10px; font-weight:600; color:#374151">Workbooks</span>
+            <button class="btn-xs purple">+ New</button>
+          </div>
+          <div class="p-3 space-y-2" id="workbookList">
+            <!-- injected by JS -->
+          </div>
+        </div>
+
+        <div class="mt-3 callout callout-amber" style="font-size:9px">
+          Workbooks are stored in localStorage as <code>workbooks[]</code>.
+          A workbook references a filter preset id and a layout preset id by name — it does not duplicate the config,
+          so editing a layout preset updates all workbooks that reference it.
+        </div>
+      </div>
+
+      <!-- Workbook data model -->
+      <div>
+        <p class="text-xs font-semibold text-gray-600 mb-2">Workbook data model</p>
+        <pre style="font-size:10px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:12px; overflow-x:auto; line-height:1.6; color:#374151">{
+  id:             "wb-marathon-review",
+  name:           "Marathon race review",
+  filterPresetId: "fp-marathons",
+  layoutPresetId: "lp-race-analysis",
+  createdAt:      "2026-03-11"
+}</pre>
+
+        <p class="text-xs font-semibold text-gray-600 mb-2 mt-4">Loading flow</p>
+        <div class="space-y-1" style="font-size:10px; color:#374151">
+          <div class="flex items-start gap-2">
+            <span class="bg-orange-100 text-orange-700 rounded px-1 font-mono text-xs">1</span>
+            <span>Look up <code>filterPresetId</code> → apply FilterState to sidebar filter controls</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="bg-purple-100 text-purple-700 rounded px-1 font-mono text-xs">2</span>
+            <span>Look up <code>layoutPresetId</code> → apply LayoutConfig (mode, slots, channels)</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span class="bg-gray-100 text-gray-600 rounded px-1 font-mono text-xs">3</span>
+            <span>Write both to localStorage so next reload restores the Workbook</span>
+          </div>
+        </div>
+
+        <div class="callout callout-blue mt-4" style="font-size:9px">
+          <strong>Open question:</strong> Should a Workbook optionally embed the filter/layout config inline
+          (so it stays self-contained even if the underlying preset is deleted)?
+          Or reference by id only (simpler, but brittle)?
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     SECTION 5 — Revised data model + open design questions
+     ══════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="panel-section">
+    <p class="section-heading mb-3">Revised type sketch</p>
+    <pre style="font-size:10px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:6px; padding:14px; overflow-x:auto; line-height:1.7; color:#374151">// Channel — one metric in a Series panel
+interface Channel {
+  metric:    'pace' | 'heartrate' | 'elevation' | 'cadence'
+  yTop:      number   // 0–100 — top of this channel's band (% of plot height from top)
+  yBottom:   number   // 0–100 — bottom of this channel's band
+  scaleMode: 'auto' | 'fixed'
+  scaleMin?: number   // data units (s/km, bpm, m …)
+  scaleMax?: number
+}
+
+// SlotConfig — what one panel slot shows
+interface SlotConfig {
+  viewType: 'scatter' | 'series' | 'map' | 'table'
+  channels: Channel[]   // only relevant when viewType === 'series'
+}
+
+// LayoutPreset — saveable named arrangement
+interface LayoutPreset {
+  id:         string
+  name:       string
+  layoutMode: 'tab' | 'split' | 'grid'
+  slots:      SlotConfig[]   // length 1 for tab, 2 for split, 4 for grid
+}
+
+// Workbook — named filter × layout combination
+interface Workbook {
+  id:             string
+  name:           string
+  filterPresetId: string
+  layoutPresetId: string
+  createdAt:      string
+}</pre>
+  </div>
+
+  <div class="panel-section">
+    <p class="text-xs font-semibold text-gray-700 mb-2">Open design questions before implementation</p>
+    <ol class="space-y-2 text-xs text-gray-600" style="list-style:decimal; padding-left:18px">
+      <li><strong>Workbook self-contained vs referenced:</strong> embed filter+layout inline in the workbook, or reference by id? Inline is self-contained but duplicates data; by-ref is DRY but breaks if presets are deleted.</li>
+      <li><strong>Channel yTop/yBottom interpretation:</strong> when two channels have overlapping bands (both 0–100%), should they be drawn with transparency + dashed secondary lines, or should there be a hard UI warning?</li>
+      <li><strong>Scale units:</strong> scaleMin/scaleMax are stored in data-layer units (s/km, bpm, metres). Who is responsible for converting when the unit preference changes (km ↔ miles)?</li>
+      <li><strong>Channels in non-Series views:</strong> should Scatter support a secondary colour-encode channel (e.g. colour by HR instead of year)? Out of scope for this story but the <code>channels</code> array on SlotConfig could accommodate it.</li>
+      <li><strong>Workbook UX entry point:</strong> top bar dropdown, settings panel, or a dedicated sidebar section?</li>
+      <li><strong>Migration:</strong> existing sessionStorage scatter/series axis state must map cleanly to the new SlotConfig format on first load.</li>
+    </ol>
+  </div>
+</div>
+
+</div><!-- /max-w -->
+
+<script>
+/* ══ Section 1: channel preview ══════════════════════════════ */
+
+function updateChannel() {
+  const pTop = parseInt(document.getElementById('paceTop').value) || 0
+  const pBot = parseInt(document.getElementById('paceBot').value) || 100
+  const hTop = parseInt(document.getElementById('hrTop').value) || 0
+  const hBot = parseInt(document.getElementById('hrBot').value) || 100
+  const eTop = parseInt(document.getElementById('elevTop')?.value || '0')
+  const eBot = parseInt(document.getElementById('elevBot')?.value || '100')
+  const hasElev = document.getElementById('elevRow')?.style.display !== 'none'
+  renderChannelPreview(pTop, pBot, hTop, hBot, hasElev, eTop, eBot)
+}
+
+function updatePaceAuto() {
+  const chk = document.getElementById('paceAuto').checked
+  document.getElementById('paceScaleFixed').style.display = chk ? 'none' : 'flex'
+}
+function updateHRAuto() {
+  const chk = document.getElementById('hrAuto').checked
+  document.getElementById('hrScaleFixed').style.display = chk ? 'none' : 'flex'
+}
+
+let elevVisible = false
+function toggleElev() {
+  elevVisible = !elevVisible
+  document.getElementById('elevRow').style.display = elevVisible ? 'flex' : 'none'
+  document.getElementById('elevBtnLabel').textContent = elevVisible ? '– remove Elevation channel' : '+ add Elevation channel'
+  updateChannel()
+}
+
+function applyQuick(preset) {
+  if (preset === 'pace-hr-stacked') {
+    document.getElementById('paceTop').value = '50'
+    document.getElementById('paceBot').value = '100'
+    document.getElementById('hrTop').value   = '0'
+    document.getElementById('hrBot').value   = '50'
+    if (elevVisible) toggleElev()
+  } else if (preset === 'pace-hr-overlay') {
+    document.getElementById('paceTop').value = '0'
+    document.getElementById('paceBot').value = '100'
+    document.getElementById('hrTop').value   = '0'
+    document.getElementById('hrBot').value   = '100'
+    if (elevVisible) toggleElev()
+  } else if (preset === 'pace-elev-hr') {
+    document.getElementById('paceTop').value = '60'
+    document.getElementById('paceBot').value = '100'
+    document.getElementById('hrTop').value   = '0'
+    document.getElementById('hrBot').value   = '60'
+    if (!elevVisible) toggleElev()
+    document.getElementById('elevTop').value = '0'
+    document.getElementById('elevBot').value = '60'
+  }
+  updateChannel()
+}
+
+function renderChannelPreview(pTop, pBot, hTop, hBot, hasElev, eTop, eBot) {
+  const container = document.getElementById('channelPreview')
+  const h = 220
+  const w = 400
+  const margin = { left: 40, right: 10, top: 4, bottom: 18 }
+  const innerH = h - margin.top - margin.bottom
+  const innerW = w - margin.left - margin.right
+
+  const pY1 = margin.top + (pTop / 100) * innerH
+  const pY2 = margin.top + (pBot / 100) * innerH
+  const hY1 = margin.top + (hTop / 100) * innerH
+  const hY2 = margin.top + (hBot / 100) * innerH
+  const eY1 = margin.top + (eTop / 100) * innerH
+  const eY2 = margin.top + (eBot / 100) * innerH
+
+  const overlapPaceHR = pTop < hBot && hTop < pBot
+  const paceOp = overlapPaceHR ? 0.75 : 0.95
+  const hrOp   = overlapPaceHR ? 0.75 : 0.95
+
+  // Activities as simple polylines scaled to their band
+  function pacePolyBand(y1, y2, color, dash='') {
+    const bh = y2 - y1
+    const lines = [
+      [[0,0.3],[0.25,0.31],[0.5,0.33],[0.75,0.35],[1,0.38]],  // London 24
+      [[0,0.4],[0.25,0.42],[0.5,0.46],[0.75,0.52],[1,0.60]],  // London 23
+      [[0,0.35],[0.25,0.34],[0.5,0.33],[0.75,0.32],[1,0.30]], // Manchester
+    ]
+    const colors = [color, color.replace('a7','2c').replace('c2410c','a78bfa'), color.replace('c2410c','f28e2c').replace('a7','4f')]
+    // simplify: same color family
+    const actColors = ['#4e79a7','#f28e2c','#59a14f']
+    return lines.map((pts, i) => {
+      const pstr = pts.map(([px,py]) => `${margin.left + px * innerW},${y1 + py * bh}`).join(' ')
+      return `<polyline points="${pstr}" fill="none" stroke="${actColors[i]}" stroke-width="1.5" opacity="${paceOp}" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`
+    }).join('')
+  }
+
+  function hrPolyBand(y1, y2) {
+    const bh = y2 - y1
+    const lines = [
+      [[0,0.6],[0.25,0.55],[0.5,0.48],[0.75,0.40],[1,0.30]],
+      [[0,0.65],[0.25,0.60],[0.5,0.53],[0.75,0.45],[1,0.35]],
+      [[0,0.62],[0.25,0.58],[0.5,0.52],[0.75,0.46],[1,0.38]],
+    ]
+    const actColors = ['#4e79a7','#f28e2c','#59a14f']
+    return lines.map((pts, i) => {
+      const pstr = pts.map(([px,py]) => `${margin.left + px * innerW},${y1 + py * bh}`).join(' ')
+      return `<polyline points="${pstr}" fill="none" stroke="${actColors[i]}" stroke-width="1.2" opacity="${hrOp}" stroke-dasharray="4,2"/>`
+    }).join('')
+  }
+
+  function elevPolyBand(y1, y2) {
+    const bh = y2 - y1
+    const pts1 = [[0,.9],[.1,.7],[.2,.5],[.3,.3],[.4,.4],[.5,.25],[.6,.35],[.7,.2],[.8,.15],[.9,.12],[1,.1]]
+    const base = y2
+    const polygons = [pts1].map(pts => {
+      const top = pts.map(([px,py]) => `${margin.left + px * innerW},${y1 + py * bh}`).join(' ')
+      const bl  = `${margin.left + innerW},${base} ${margin.left},${base}`
+      return `<polygon points="${top} ${bl}" fill="#d1fae5" opacity="0.6"/>
+              <polyline points="${top}" fill="none" stroke="#059669" stroke-width="1.5" opacity="0.8"/>`
+    }).join('')
+    return polygons
+  }
+
+  // Axis labels
+  const paceAxisX = margin.left - 2
+  const hrAxisX   = margin.left - 2
+  const elevAxisX = margin.left - 2
+
+  const hasPaceSlice = pBot > pTop
+  const hasHRSlice   = hBot > hTop
+
+  let axisLines = ''
+  // Divider lines between distinct bands
+  const allBoundaries = new Set()
+  if (hasPaceSlice) { allBoundaries.add(pY1); allBoundaries.add(pY2) }
+  if (hasHRSlice)   { allBoundaries.add(hY1); allBoundaries.add(hY2) }
+  if (hasElev)      { allBoundaries.add(eY1); allBoundaries.add(eY2) }
+  for (const y of allBoundaries) {
+    if (y > margin.top + 2 && y < margin.top + innerH - 2)
+      axisLines += `<line x1="${margin.left}" y1="${y.toFixed(1)}" x2="${margin.left + innerW}" y2="${y.toFixed(1)}" stroke="#e5e7eb" stroke-dasharray="3,3"/>`
+  }
+
+  // Y-axis label helpers
+  let yLabels = ''
+  if (hasPaceSlice) {
+    const midY = (pY1 + pY2) / 2
+    yLabels += `<text x="${paceAxisX}" y="${midY}" fill="#c2410c" font-size="8" text-anchor="middle" transform="rotate(-90,${paceAxisX},${midY})">Pace</text>`
+  }
+  if (hasHRSlice) {
+    const midY = (hY1 + hY2) / 2
+    yLabels += `<text x="${hrAxisX - 8}" y="${midY}" fill="#dc2626" font-size="8" text-anchor="middle" transform="rotate(-90,${hrAxisX-8},${midY})">HR</text>`
+  }
+  if (hasElev) {
+    const midY = (eY1 + eY2) / 2
+    yLabels += `<text x="${elevAxisX - 16}" y="${midY}" fill="#059669" font-size="8" text-anchor="middle" transform="rotate(-90,${elevAxisX-16},${midY})">Elev</text>`
+  }
+
+  const xAxisY = margin.top + innerH
+  const svg = `<svg viewBox="0 0 ${w} ${h}" class="w-full h-full" preserveAspectRatio="none" style="position:absolute;inset:0">
+    <!-- axes -->
+    <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${xAxisY}" stroke="#e5e7eb"/>
+    <line x1="${margin.left}" y1="${xAxisY}" x2="${margin.left+innerW}" y2="${xAxisY}" stroke="#e5e7eb"/>
+    ${axisLines}
+    ${yLabels}
+    ${hasElev ? elevPolyBand(eY1, eY2) : ''}
+    ${hasHRSlice ? hrPolyBand(hY1, hY2) : ''}
+    ${hasPaceSlice ? pacePolyBand(pY1, pY2, '#c2410c', overlapPaceHR ? '' : '') : ''}
+    <text x="${margin.left + innerW/2}" y="${h - 2}" fill="#9ca3af" font-size="8" text-anchor="middle">Distance (km)</text>
+  </svg>`
+
+  container.innerHTML = svg
+}
+
+// initial render
+updateChannel()
+
+/* ══ Section 3: layout presets ═══════════════════════════════ */
+const layoutPresets = [
+  { id:'lp-classic',       name:'Classic (tab)',     layoutMode:'tab',   slots:[{viewType:'scatter',channels:[]}] },
+  { id:'lp-race-analysis', name:'Race analysis',     layoutMode:'split', slots:[{viewType:'series',channels:[{metric:'pace',yTop:50,yBottom:100},{metric:'heartrate',yTop:0,yBottom:50}]},{viewType:'map',channels:[]}] },
+  { id:'lp-deep-dive',     name:'Deep dive',         layoutMode:'split', slots:[{viewType:'series',channels:[{metric:'pace',yTop:0,yBottom:100},{metric:'heartrate',yTop:0,yBottom:100}]},{viewType:'table',channels:[]}] },
+]
+let activePresetId = 'lp-race-analysis'
+
+function renderPresetList() {
+  const list = document.getElementById('presetList')
+  list.innerHTML = layoutPresets.map(p => `
+    <div class="preset-row ${p.id === activePresetId ? 'active-preset' : ''}" onclick="loadPreset('${p.id}')">
+      <span class="preset-dot ${p.id === activePresetId ? 'orange' : ''}"></span>
+      <span style="flex:1">${p.name}</span>
+      <span style="font-size:8px; color:#9ca3af">${p.layoutMode}</span>
+      <button onclick="deletePreset(event,'${p.id}')" style="font-size:9px; color:#e5e7eb; background:none; border:none; cursor:pointer; padding:0 2px" title="Delete">✕</button>
+    </div>`).join('')
+}
+
+function loadPreset(id) {
+  activePresetId = id
+  renderPresetList()
+}
+
+function deletePreset(e, id) {
+  e.stopPropagation()
+  const idx = layoutPresets.findIndex(p => p.id === id)
+  if (idx > -1) layoutPresets.splice(idx, 1)
+  if (activePresetId === id) activePresetId = layoutPresets[0]?.id
+  renderPresetList()
+}
+
+let saveOpen = false
+function toggleSavePopover() {
+  saveOpen = !saveOpen
+  document.getElementById('savePopover').style.display = saveOpen ? 'block' : 'none'
+}
+
+function savePreset() {
+  const name = document.getElementById('presetName').value.trim()
+  if (!name) return
+  const id = 'lp-' + name.toLowerCase().replace(/\s+/g,'-')
+  layoutPresets.push({ id, name, layoutMode:'split', slots:[] })
+  activePresetId = id
+  document.getElementById('presetName').value = ''
+  saveOpen = false
+  document.getElementById('savePopover').style.display = 'none'
+  renderPresetList()
+}
+
+renderPresetList()
+
+/* click outside closes popover */
+document.addEventListener('click', e => {
+  if (!document.getElementById('savePresetBtn')?.contains(e.target)) {
+    saveOpen = false
+    const pop = document.getElementById('savePopover')
+    if (pop) pop.style.display = 'none'
+  }
+}, true)
+
+/* ══ Section 4: workbooks ════════════════════════════════════ */
+const workbooks = [
+  { id:'wb-marathon', name:'Marathon race review', filterPreset:'Marathons only', layoutPreset:'Race analysis', active:true },
+  { id:'wb-5k',       name:'5k race series',       filterPreset:'5k races',       layoutPreset:'Classic (tab)', active:false },
+  { id:'wb-training', name:'Training load',        filterPreset:'Last 12 months', layoutPreset:'Deep dive',    active:false },
+]
+
+function renderWorkbooks() {
+  const list = document.getElementById('workbookList')
+  list.innerHTML = workbooks.map(w => `
+    <div class="workbook-card ${w.active ? 'wk-active' : ''}" onclick="loadWorkbook('${w.id}')">
+      <p class="workbook-name">${w.name}</p>
+      <div class="workbook-meta">
+        <span class="workbook-tag wk-filter">⚡ ${w.filterPreset}</span>
+        <span class="workbook-tag wk-layout">⊞ ${w.layoutPreset}</span>
+      </div>
+    </div>`).join('')
+}
+
+function loadWorkbook(id) {
+  workbooks.forEach(w => w.active = w.id === id)
+  renderWorkbooks()
+}
+
+renderWorkbooks()
+</script>
+</body>
+</html>

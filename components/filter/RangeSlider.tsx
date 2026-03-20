@@ -69,7 +69,7 @@ export function RangeSlider({
     <div className="w-full" ref={rangeRef}>
       <div className="relative h-6 flex items-center">
         {/* Track */}
-        <div className="absolute w-full h-1.5 bg-gray-200 rounded" />
+        <div className="absolute w-full h-1.5 bg-gray-200 dark:bg-gray-600 rounded" />
         {/* Active range */}
         <div
           className="absolute h-1.5 bg-orange-500 rounded"
@@ -100,7 +100,7 @@ export function RangeSlider({
           className="absolute w-full appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-orange-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow"
         />
       </div>
-      <div className="flex justify-between text-xs text-gray-500 mt-1">
+      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
         {parseValue ? (
           <input
             type="text"
@@ -109,7 +109,7 @@ export function RangeSlider({
             onFocus={(e) => { setMinText(formatValue(value[0])); e.target.select() }}
             onBlur={(e) => commitMin(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commitMin((e.target as HTMLInputElement).value) }}
-            className="w-20 bg-transparent border-b border-gray-300 focus:border-orange-400 outline-none text-gray-500 text-xs"
+            className="w-20 bg-transparent border-b border-gray-300 dark:border-gray-500 focus:border-orange-400 outline-none text-gray-500 dark:text-gray-400 text-xs"
           />
         ) : (
           <span>{formatValue(value[0])}</span>
@@ -122,7 +122,7 @@ export function RangeSlider({
             onFocus={(e) => { setMaxText(formatValue(value[1])); e.target.select() }}
             onBlur={(e) => commitMax(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commitMax((e.target as HTMLInputElement).value) }}
-            className="w-20 text-right bg-transparent border-b border-gray-300 focus:border-orange-400 outline-none text-gray-500 text-xs"
+            className="w-20 text-right bg-transparent border-b border-gray-300 dark:border-gray-500 focus:border-orange-400 outline-none text-gray-500 dark:text-gray-400 text-xs"
           />
         ) : (
           <span>{formatValue(value[1])}</span>

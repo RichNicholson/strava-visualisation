@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>US10 – Layout Concepts</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* ── shared ─────────────────────────────────── */
+  body { font-family: system-ui, sans-serif; }
+
+  .concept-card { background:white; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); overflow:hidden; }
+  .concept-tag  { display:inline-block; padding:2px 10px; border-radius:20px; font-size:11px; font-weight:600; letter-spacing:.03em; }
+  .tag-a { background:#dbeafe; color:#1d4ed8; }
+  .tag-b { background:#dcfce7; color:#166534; }
+  .tag-c { background:#fef3c7; color:#92400e; }
+  .pro   { color:#16a34a; }
+  .con   { color:#dc2626; }
+  .note  { color:#6b7280; }
+
+  /* ── topbar sim ─────────────────────────────── */
+  .topbar {
+    background:white; border-bottom:1px solid #e5e7eb;
+    padding:6px 12px; display:flex; align-items:center; gap:10px;
+    font-size:12px; flex-shrink:0;
+  }
+  .logo { font-weight:700; color:#f97316; font-size:14px; }
+
+  /* segment buttons */
+  .seg { display:flex; overflow:hidden; border:1px solid #e5e7eb; border-radius:6px; }
+  .seg button { padding:3px 10px; font-size:11px; font-weight:500; color:#6b7280; background:white; border:none; cursor:pointer; transition:background .1s; }
+  .seg button.active { background:#f97316; color:white; }
+  .seg button:hover:not(.active) { background:#fff7ed; color:#f97316; }
+  .seg button + button { border-left:1px solid #e5e7eb; }
+
+  .btn-sm { padding:3px 10px; font-size:11px; border-radius:6px; border:1px solid #e5e7eb; background:white; cursor:pointer; color:#6b7280; }
+  .btn-sm:hover { background:#f9fafb; }
+  .btn-sm.active { background:#f97316; color:white; border-color:#f97316; }
+
+  /* ── sidebar sim ────────────────────────────── */
+  .sidebar { width:120px; flex-shrink:0; border-right:1px solid #e5e7eb; background:white; padding:8px; font-size:10px; overflow:hidden; }
+  .sidebar-section { margin-bottom:8px; }
+  .sidebar-label { font-size:9px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+  .filter-pill { background:#f3f4f6; border-radius:4px; padding:2px 6px; color:#6b7280; font-size:9px; margin-bottom:2px; }
+  .roster-dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+
+  /* ── plot panels ────────────────────────────── */
+  .plot-panel {
+    background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;
+    display:flex; flex-direction:column; overflow:hidden; position:relative;
+    min-height:0;
+  }
+  .plot-panel-header {
+    background:white; border-bottom:1px solid #f3f4f6;
+    padding:3px 8px; display:flex; align-items:center; gap:6px;
+    font-size:10px; color:#6b7280; flex-shrink:0;
+  }
+  .plot-panel-body { flex:1; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+
+  /* fake chart lines */
+  .chart-placeholder { width:100%; height:100%; position:relative; }
+  .chart-placeholder svg { width:100%; height:100%; }
+
+  /* overlay chip */
+  .overlay-chip {
+    display:inline-flex; align-items:center; gap:3px;
+    padding:1px 6px; border-radius:10px; font-size:9px; font-weight:500;
+    border:1px solid; cursor:pointer;
+  }
+  .chip-pace { background:#fff7ed; border-color:#fdba74; color:#c2410c; }
+  .chip-hr   { background:#fef2f2; border-color:#fca5a5; color:#b91c1c; }
+  .chip-elev { background:#f0fdf4; border-color:#86efac; color:#166534; }
+  .chip-cad  { background:#faf5ff; border-color:#d8b4fe; color:#7e22ce; }
+  .chip-add  { background:white; border-color:#d1d5db; color:#9ca3af; }
+  .chip-add:hover { border-color:#f97316; color:#f97316; }
+
+  /* panel type label badge */
+  .panel-badge { font-size:8px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:1px 5px; border-radius:3px; }
+  .badge-scatter { background:#dbeafe; color:#1e40af; }
+  .badge-series  { background:#dcfce7; color:#166534; }
+  .badge-map     { background:#fef3c7; color:#92400e; }
+  .badge-table   { background:#f3e8ff; color:#7e22ce; }
+
+  /* ── dashboard shell sim ─────────────────────── */
+  .dash-shell { display:flex; flex-direction:column; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#f9fafb; }
+  .dash-body  { display:flex; flex:1; min-height:0; }
+</style>
+</head>
+<body class="bg-gray-50 py-10 px-6">
+<div class="max-w-5xl mx-auto space-y-12">
+
+  <!-- Header -->
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">US10 – Layout: Tab / Tile / Overlay</h1>
+    <p class="mt-1 text-gray-500 text-sm">Three concepts. "Overlay" = multiple metrics on one plot (e.g. pace + HR on the series chart). Click highlighted controls to see state changes.</p>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       CONCEPT A  —  Three-way layout dial + in-panel overlay
+       ══════════════════════════════════════════════════════ -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-a">Concept A</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Three-way layout dial (Tab | 2-Split | 4-Grid) + overlay toggle within Series panel</h2>
+        <p class="text-xs text-gray-400 mt-0.5">The top bar gains a layout selector that is completely separate from the plot-type selector. Overlay lives in the Series panel controls, independent of layout.</p>
+      </div>
+    </div>
+
+    <div class="p-5 space-y-3">
+      <!-- Layout A: Tab mode (current) -->
+      <p class="text-xs text-gray-500 font-medium">Layout = <strong>Tab</strong> (current behaviour — one plot at a time)</p>
+      <div class="dash-shell" style="height:230px">
+        <div class="topbar">
+          <span class="logo">StravaViz</span>
+          <!-- plot type tabs -->
+          <div class="seg" id="aTabSeg">
+            <button class="active" onclick="setATab('scatter',this)">Scatter</button>
+            <button onclick="setATab('table',this)">Table</button>
+            <button onclick="setATab('series',this)">Series</button>
+            <button onclick="setATab('map',this)">Map</button>
+          </div>
+          <!-- layout dial -->
+          <div class="flex items-center gap-1.5 ml-3">
+            <span style="font-size:10px; color:#9ca3af">Layout:</span>
+            <div class="seg" id="aLayoutSeg">
+              <button class="active" onclick="setALayout('tab',this)" title="Tabbed (one at a time)">⬛ Tab</button>
+              <button onclick="setALayout('split',this)" title="Two panels side by side">⬛⬛ Split</button>
+              <button onclick="setALayout('grid',this)" title="Four panels 2×2">⬛⬛⬛⬛ Grid</button>
+            </div>
+          </div>
+          <div class="ml-auto flex gap-2">
+            <button class="btn-sm">Re-sync</button>
+            <button class="btn-sm">⚙</button>
+          </div>
+        </div>
+        <div class="dash-body overflow-hidden">
+          <div class="sidebar">
+            <div class="sidebar-section">
+              <div class="sidebar-label">Filters</div>
+              <div class="filter-pill">Run · last 12 mo</div>
+              <div class="filter-pill">3:30–7:00 /km</div>
+            </div>
+            <div class="sidebar-section">
+              <div class="sidebar-label">Roster</div>
+              <div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span><span>London 2024</span></div>
+              <div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#f28e2c"></span><span>London 2023</span></div>
+              <div class="flex items-center gap-1"><span class="roster-dot" style="background:#59a14f"></span><span>Manchester</span></div>
+            </div>
+          </div>
+          <!-- Single plot area -->
+          <div class="flex-1 min-w-0 p-2" id="aTabPlotArea">
+            <div class="plot-panel h-full">
+              <div class="plot-panel-header">
+                <span class="panel-badge badge-scatter" id="aTabBadge">SCATTER</span>
+                <span id="aTabPanelLabel" class="text-gray-400">Distance vs Pace · 847 activities</span>
+              </div>
+              <div class="plot-panel-body">
+                <svg id="aScatterSvg" viewBox="0 0 320 120" class="w-full h-full p-2">
+                  <!-- scatter dots -->
+                  <g id="aScatterDots">
+                  <circle cx="40" cy="80" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="60" cy="70" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="80" cy="75" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="100" cy="65" r="3" fill="#f28e2c" opacity=".7"/>
+                  <circle cx="120" cy="60" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="140" cy="55" r="3" fill="#59a14f" opacity=".7"/>
+                  <circle cx="160" cy="50" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="180" cy="45" r="3" fill="#f28e2c" opacity=".7"/>
+                  <circle cx="200" cy="55" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="220" cy="50" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="240" cy="45" r="3" fill="#59a14f" opacity=".7"/>
+                  <circle cx="260" cy="48" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="280" cy="42" r="3" fill="#f28e2c" opacity=".7"/>
+                  </g>
+                  <line x1="20" y1="110" x2="310" y2="110" stroke="#e5e7eb"/>
+                  <line x1="20" y1="10" x2="20" y2="110" stroke="#e5e7eb"/>
+                  <text x="165" y="118" fill="#9ca3af" font-size="8" text-anchor="middle">Distance (km)</text>
+                  <text x="10" y="65" fill="#9ca3af" font-size="8" text-anchor="middle" transform="rotate(-90,10,65)">Pace</text>
+                  <!-- Series view (hidden) -->
+                  <g id="aSeriesSvg" style="display:none">
+                    <line x1="20" y1="10" x2="20" y2="110" stroke="#e5e7eb"/>
+                    <line x1="20" y1="110" x2="310" y2="110" stroke="#e5e7eb"/>
+                    <polyline points="20,70 80,68 140,65 200,62 280,58" fill="none" stroke="#4e79a7" stroke-width="1.5"/>
+                    <polyline points="20,80 80,78 140,72 200,65 280,55" fill="none" stroke="#f28e2c" stroke-width="1.5"/>
+                    <polyline points="20,65 80,64 140,66 200,68 280,70" fill="none" stroke="#59a14f" stroke-width="1.5"/>
+                    <!-- HR overlay (hidden) -->
+                    <g id="aHROverlay" style="display:none">
+                      <polyline points="20,50 80,48 140,44 200,40 280,35" fill="none" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,2" opacity=".7"/>
+                      <text x="260" y="30" fill="#dc2626" font-size="7">HR</text>
+                    </g>
+                    <text x="165" y="118" fill="#9ca3af" font-size="8" text-anchor="middle">Distance (km)</text>
+                  </g>
+                </svg>
+                <!-- Series overlay controls (hidden in tab/scatter mode) -->
+                <div id="aOverlayBar" style="display:none; position:absolute; bottom:6px; left:8px; display:none; gap:4px; align-items:center; flex-wrap:wrap;">
+                  <span style="font-size:9px; color:#9ca3af">overlay:</span>
+                  <span class="overlay-chip chip-pace">Pace ✕</span>
+                  <span class="overlay-chip chip-hr" id="aHRChip" onclick="toggleAHR()" style="opacity:.4; cursor:pointer">HR</span>
+                  <span class="overlay-chip chip-elev" style="opacity:.4; cursor:pointer">Elev</span>
+                  <span class="overlay-chip chip-add" onclick="toggleAHR()">+ add metric</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layout A: Split mode -->
+      <p class="text-xs text-gray-500 font-medium mt-4" id="aSplitLabel" style="display:none">Layout = <strong>Split</strong> — two panels, independently configured</p>
+      <div id="aSplitView" style="display:none">
+        <div class="dash-shell" style="height:230px">
+          <div class="topbar">
+            <span class="logo">StravaViz</span>
+            <div class="seg"><button class="active" style="pointer-events:none">—</button><button style="pointer-events:none">—</button><button style="pointer-events:none">—</button><button style="pointer-events:none">—</button></div>
+            <div class="flex items-center gap-1.5 ml-3">
+              <span style="font-size:10px; color:#9ca3af">Layout:</span>
+              <div class="seg"><button>⬛ Tab</button><button class="active">⬛⬛ Split</button><button>⬛⬛⬛⬛ Grid</button></div>
+            </div>
+            <div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div>
+          </div>
+          <div class="dash-body overflow-hidden">
+            <div class="sidebar">
+              <div class="sidebar-section"><div class="sidebar-label">Filters</div><div class="filter-pill">Run · last 12 mo</div></div>
+              <div class="sidebar-section"><div class="sidebar-label">Roster</div>
+                <div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span><span>London 2024</span></div>
+                <div class="flex items-center gap-1"><span class="roster-dot" style="background:#f28e2c"></span><span>London 2023</span></div>
+              </div>
+            </div>
+            <!-- Two panels side by side -->
+            <div class="flex-1 grid grid-cols-2 gap-2 p-2 min-w-0">
+              <div class="plot-panel">
+                <div class="plot-panel-header">
+                  <span class="panel-badge badge-scatter">SCATTER</span>
+                  <select style="font-size:9px; border:none; background:transparent; color:#9ca3af; cursor:pointer"><option>Scatter</option><option>Series</option><option>Map</option><option>Table</option></select>
+                </div>
+                <div class="plot-panel-body">
+                  <svg viewBox="0 0 150 100" class="w-full h-full p-1">
+                    <line x1="10" y1="90" x2="145" y2="90" stroke="#e5e7eb"/><line x1="10" y1="5" x2="10" y2="90" stroke="#e5e7eb"/>
+                    <circle cx="30" cy="70" r="2.5" fill="#4e79a7" opacity=".7"/><circle cx="50" cy="60" r="2.5" fill="#4e79a7" opacity=".7"/>
+                    <circle cx="70" cy="55" r="2.5" fill="#f28e2c" opacity=".7"/><circle cx="90" cy="48" r="2.5" fill="#4e79a7" opacity=".7"/>
+                    <circle cx="110" cy="45" r="2.5" fill="#59a14f" opacity=".7"/><circle cx="130" cy="42" r="2.5" fill="#4e79a7" opacity=".7"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="plot-panel">
+                <div class="plot-panel-header">
+                  <span class="panel-badge badge-series">SERIES</span>
+                  <select style="font-size:9px; border:none; background:transparent; color:#9ca3af; cursor:pointer"><option>Series</option><option>Scatter</option><option>Map</option><option>Table</option></select>
+                  <div class="ml-auto flex gap-1">
+                    <span class="overlay-chip chip-pace" style="font-size:8px">Pace</span>
+                    <span class="overlay-chip chip-hr" style="font-size:8px">HR</span>
+                    <span class="overlay-chip chip-add" style="font-size:8px">+</span>
+                  </div>
+                </div>
+                <div class="plot-panel-body">
+                  <svg viewBox="0 0 150 100" class="w-full h-full p-1">
+                    <line x1="10" y1="90" x2="145" y2="90" stroke="#e5e7eb"/><line x1="10" y1="5" x2="10" y2="90" stroke="#e5e7eb"/>
+                    <polyline points="10,65 40,62 80,58 120,52 145,48" fill="none" stroke="#4e79a7" stroke-width="1.5"/>
+                    <polyline points="10,70 40,68 80,62 120,55 145,50" fill="none" stroke="#f28e2c" stroke-width="1.5"/>
+                    <polyline points="10,72 40,70 80,72 120,68 145,66" fill="none" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,2" opacity=".7"/>
+                    <text x="120" y="60" fill="#dc2626" font-size="7">HR</text>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layout A: Grid mode -->
+      <p class="text-xs text-gray-500 font-medium mt-4" id="aGridLabel" style="display:none">Layout = <strong>Grid</strong> — four panels 2×2</p>
+      <div id="aGridView" style="display:none">
+        <div class="dash-shell" style="height:300px">
+          <div class="topbar">
+            <span class="logo">StravaViz</span>
+            <div class="seg"><button style="pointer-events:none; color:#ccc">—</button><button style="pointer-events:none; color:#ccc">—</button><button style="pointer-events:none; color:#ccc">—</button><button style="pointer-events:none; color:#ccc">—</button></div>
+            <div class="flex items-center gap-1.5 ml-3">
+              <span style="font-size:10px; color:#9ca3af">Layout:</span>
+              <div class="seg"><button>⬛ Tab</button><button>⬛⬛ Split</button><button class="active">⬛⬛⬛⬛ Grid</button></div>
+            </div>
+            <div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div>
+          </div>
+          <div class="dash-body overflow-hidden">
+            <div class="sidebar">
+              <div class="sidebar-section"><div class="sidebar-label">Filters</div><div class="filter-pill">Run · last 12 mo</div></div>
+              <div class="sidebar-section"><div class="sidebar-label">Roster</div>
+                <div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span><span>London '24</span></div>
+                <div class="flex items-center gap-1"><span class="roster-dot" style="background:#f28e2c"></span><span>London '23</span></div>
+              </div>
+            </div>
+            <div class="flex-1 grid grid-cols-2 grid-rows-2 gap-1.5 p-2 min-w-0">
+              <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-scatter">SCATTER</span></div><div class="plot-panel-body" style="font-size:9px; color:#9ca3af">scatter</div></div>
+              <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-series">SERIES</span><span class="overlay-chip chip-hr ml-auto" style="font-size:7px">HR</span></div><div class="plot-panel-body" style="font-size:9px; color:#9ca3af">series</div></div>
+              <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-map">MAP</span></div><div class="plot-panel-body" style="font-size:9px; color:#9ca3af">map</div></div>
+              <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-table">TABLE</span></div><div class="plot-panel-body" style="font-size:9px; color:#9ca3af">table</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div><p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Layout and plot-type are clearly separate concepts</li>
+          <li class="pro">✓ Overlay stays in the Series panel header — no new global controls</li>
+          <li class="pro">✓ 4-Grid gives true side-by-side-by-side-by-side comparison</li>
+          <li class="pro">✓ Tabbed mode is identical to today — zero regression</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Grid with 4 panels is cramped on smaller screens</li>
+          <li class="con">✗ Top bar is now busier (two segment groups)</li>
+          <li class="con">✗ Each panel needs its own plot-type switcher → more components</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• Layout dial is a top-level persistent preference (localStorage)</li>
+          <li>• In Split/Grid, each panel has its own plot-type dropdown</li>
+          <li>• Overlay chips appear only in Series panels</li>
+          <li>• "+" chip adds next available metric (HR → Elev → Cadence)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       CONCEPT B  —  Named layout presets + per-panel stack
+       ══════════════════════════════════════════════════════ -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-b">Concept B</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Named preset layouts + metric stack within Series panel</h2>
+        <p class="text-xs text-gray-400 mt-0.5">No free-form tile configuration. Pick from five named presets ("Classic", "Race preview", "Race analysis", "Deep dive", "Overview"). Overlay is a reorderable metric stack inside the Series panel header.</p>
+      </div>
+    </div>
+
+    <div class="p-5 space-y-4">
+
+      <!-- Preset picker row -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-500 font-medium">Preset:</span>
+        <div class="flex gap-1.5 flex-wrap" id="bPresetButtons">
+          <button class="btn-sm active" onclick="setBPreset('classic',this)">Classic</button>
+          <button class="btn-sm" onclick="setBPreset('race-preview',this)">Race preview</button>
+          <button class="btn-sm" onclick="setBPreset('race-analysis',this)">Race analysis</button>
+          <button class="btn-sm" onclick="setBPreset('deep-dive',this)">Deep dive</button>
+          <button class="btn-sm" onclick="setBPreset('overview',this)">Overview</button>
+        </div>
+        <span id="bPresetDesc" class="text-xs text-gray-400 ml-2 italic">Single plot, one at a time (today's default)</span>
+      </div>
+
+      <!-- Classic (tab) -->
+      <div id="bClassicLayout" class="dash-shell" style="height:200px">
+        <div class="topbar"><span class="logo">StravaViz</span><div class="seg"><button class="active">Scatter</button><button>Table</button><button>Series</button><button>Map</button></div><div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div></div>
+        <div class="dash-body">
+          <div class="sidebar"><div class="sidebar-label">Filters</div><div class="filter-pill">Run · 12 mo</div><div class="sidebar-label mt-2">Roster</div><div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span>London 24</div></div>
+          <div class="flex-1 p-2"><div class="plot-panel h-full"><div class="plot-panel-header"><span class="panel-badge badge-scatter">SCATTER</span><span class="text-gray-400">847 activities</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:11px">◦ ◦ ◦ scatter dots ◦ ◦ ◦</div></div></div>
+        </div>
+      </div>
+
+      <!-- Race preview (scatter + map) -->
+      <div id="bRacePreviewLayout" class="dash-shell" style="height:200px; display:none">
+        <div class="topbar"><span class="logo">StravaViz</span><span style="font-size:10px; color:#9ca3af">Race preview</span><div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div></div>
+        <div class="dash-body">
+          <div class="sidebar"><div class="sidebar-label">Filters</div><div class="filter-pill">Marathon</div><div class="sidebar-label mt-2">Roster</div><div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span>London 24</div><div class="flex items-center gap-1"><span class="roster-dot" style="background:#f28e2c"></span>London 23</div></div>
+          <div class="flex-1 grid grid-cols-2 gap-2 p-2">
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-scatter">SCATTER</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:10px">scatter</div></div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-map">MAP</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:10px">route map</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Race analysis (series + map) -->
+      <div id="bRaceAnalysisLayout" class="dash-shell" style="height:200px; display:none">
+        <div class="topbar"><span class="logo">StravaViz</span><span style="font-size:10px; color:#9ca3af">Race analysis</span><div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div></div>
+        <div class="dash-body">
+          <div class="sidebar"><div class="sidebar-label">Roster</div><div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span>London 24</div><div class="flex items-center gap-1"><span class="roster-dot" style="background:#f28e2c"></span>London 23</div></div>
+          <div class="flex-1 grid grid-cols-2 gap-2 p-2">
+            <div class="plot-panel">
+              <div class="plot-panel-header">
+                <span class="panel-badge badge-series">SERIES</span>
+                <div class="ml-auto flex gap-1">
+                  <span class="overlay-chip chip-pace" style="font-size:7px">Pace ✓</span>
+                  <span class="overlay-chip chip-hr" style="font-size:7px" id="bHRChip" onclick="toggleBHR()">HR</span>
+                  <span class="overlay-chip chip-elev" style="font-size:7px">Elev</span>
+                  <span class="overlay-chip chip-add" style="font-size:7px">+</span>
+                </div>
+              </div>
+              <div class="plot-panel-body">
+                <svg viewBox="0 0 160 100" class="w-full h-full p-1">
+                  <line x1="10" y1="90" x2="155" y2="90" stroke="#e5e7eb"/><line x1="10" y1="5" x2="10" y2="90" stroke="#e5e7eb"/>
+                  <polyline points="10,65 50,62 90,58 130,52 155,48" fill="none" stroke="#4e79a7" stroke-width="1.5"/>
+                  <polyline points="10,70 50,68 90,62 130,55 155,50" fill="none" stroke="#f28e2c" stroke-width="1.5"/>
+                  <g id="bHROverlaySvg" style="display:none">
+                    <polyline points="10,45 50,43 90,40 130,36 155,32" fill="none" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,2" opacity=".8"/>
+                    <text x="130" y="30" fill="#dc2626" font-size="7">HR ▸</text>
+                  </g>
+                </svg>
+              </div>
+            </div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-map">MAP</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:10px">route map</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Deep dive: series + table -->
+      <div id="bDeepDiveLayout" class="dash-shell" style="height:200px; display:none">
+        <div class="topbar"><span class="logo">StravaViz</span><span style="font-size:10px; color:#9ca3af">Deep dive</span><div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div></div>
+        <div class="dash-body">
+          <div class="sidebar"><div class="sidebar-label">Filters</div><div class="filter-pill">Run · 12 mo</div><div class="sidebar-label mt-2">Roster</div><div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span>London 24</div></div>
+          <div class="flex-1 grid grid-cols-2 gap-2 p-2">
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-series">SERIES</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:10px">series</div></div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-table">TABLE</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:10px">activity table</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overview: all four -->
+      <div id="bOverviewLayout" class="dash-shell" style="height:260px; display:none">
+        <div class="topbar"><span class="logo">StravaViz</span><span style="font-size:10px; color:#9ca3af">Overview</span><div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div></div>
+        <div class="dash-body">
+          <div class="sidebar"><div class="sidebar-label">Filters</div><div class="filter-pill">Run</div><div class="sidebar-label mt-2">Roster</div><div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span>London 24</div></div>
+          <div class="flex-1 grid grid-cols-2 grid-rows-2 gap-1.5 p-2 min-w-0">
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-scatter">SCATTER</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:9px">scatter</div></div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-series">SERIES</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:9px">series</div></div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-map">MAP</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:9px">map</div></div>
+            <div class="plot-panel"><div class="plot-panel-header"><span class="panel-badge badge-table">TABLE</span></div><div class="plot-panel-body" style="color:#d1d5db; font-size:9px">table</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div><p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Opinionated presets remove decision fatigue</li>
+          <li class="pro">✓ "Classic" is today's UI — no regression</li>
+          <li class="pro">✓ Overlay chips are per-panel and composable</li>
+          <li class="pro">✓ Preset name shows context of what you're doing</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Users can't mix arbitrary combinations (e.g. scatter + table)</li>
+          <li class="con">✗ Preset list may grow unwieldy over time</li>
+          <li class="con">✗ In tiled presets, the plot-type tabs in top bar are meaningless / hidden</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• Preset buttons are the only layout control — no per-panel type switcher</li>
+          <li>• Overlay chips in Series panel header: click to enable, ✕ to remove</li>
+          <li>• Last used preset restored from localStorage on reload</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       CONCEPT C  —  Minimal: current tabs + split handle + overlay in Series
+       ══════════════════════════════════════════════════════ -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-c">Concept C</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Minimal extension: current tabs + split-screen toggle + overlay inside Series controls</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Least disruptive. Keep the existing tab bar unchanged. Add a small split icon that pins a second panel beside the active tab. Overlay piggybacks on the existing Y-metric system in SeriesPlot as a secondary-axis toggle.</p>
+      </div>
+    </div>
+
+    <div class="p-5 space-y-4">
+
+      <!-- Normal tabs (unsplit) -->
+      <p class="text-xs text-gray-500 font-medium">Default: tabbed, no split</p>
+      <div class="dash-shell" style="height:220px">
+        <div class="topbar">
+          <span class="logo">StravaViz</span>
+          <!-- tabs with split icons -->
+          <div class="flex items-center">
+            <div class="seg" style="border-radius:6px 0 0 6px; border-right:none">
+              <button class="active" onclick="setCTab('scatter',this)">Scatter</button>
+              <button onclick="setCTab('table',this)">Table</button>
+              <button onclick="setCTab('series',this)">Series</button>
+              <button onclick="setCTab('map',this)">Map</button>
+            </div>
+            <!-- split handle -->
+            <button id="cSplitBtn" onclick="toggleCSplit()" title="Pin a second plot beside this one"
+              style="padding:4px 7px; border:1px solid #e5e7eb; border-left:none; border-radius:0 6px 6px 0; background:white; cursor:pointer; font-size:10px; color:#9ca3af"
+              title="Split view">⊟</button>
+          </div>
+          <div class="ml-auto flex gap-2"><button class="btn-sm">Re-sync</button></div>
+        </div>
+        <div class="dash-body overflow-hidden">
+          <div class="sidebar"><div class="sidebar-label">Filters</div><div class="filter-pill">Run · 12 mo</div><div class="sidebar-label mt-2">Roster</div>
+            <div class="flex items-center gap-1 mb-1"><span class="roster-dot" style="background:#4e79a7"></span><span>London 24</span></div>
+            <div class="flex items-center gap-1"><span class="roster-dot" style="background:#f28e2c"></span><span>London 23</span></div>
+          </div>
+          <!-- main plot + optional split pane -->
+          <div class="flex-1 flex gap-2 p-2 min-w-0">
+            <!-- Primary panel -->
+            <div class="plot-panel flex-1 min-w-0">
+              <div class="plot-panel-header">
+                <span class="panel-badge badge-scatter" id="cPrimaryBadge">SCATTER</span>
+                <span class="text-gray-400" id="cPrimaryLabel" style="font-size:9px">847 activities</span>
+              </div>
+              <div class="plot-panel-body" id="cPrimaryBody">
+                <svg viewBox="0 0 200 100" class="w-full h-full p-2">
+                  <line x1="10" y1="90" x2="195" y2="90" stroke="#e5e7eb"/><line x1="10" y1="5" x2="10" y2="90" stroke="#e5e7eb"/>
+                  <circle cx="30" cy="75" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="55" cy="65" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="80" cy="58" r="3" fill="#f28e2c" opacity=".7"/>
+                  <circle cx="105" cy="52" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="130" cy="48" r="3" fill="#59a14f" opacity=".7"/>
+                  <circle cx="155" cy="44" r="3" fill="#4e79a7" opacity=".7"/>
+                  <circle cx="180" cy="42" r="3" fill="#f28e2c" opacity=".7"/>
+                  <!-- Series view hidden initially -->
+                  <g id="cSeriesSvg" style="display:none">
+                    <polyline points="10,68 50,65 100,60 150,54 195,50" fill="none" stroke="#4e79a7" stroke-width="1.5"/>
+                    <polyline points="10,72 50,70 100,64 150,56 195,52" fill="none" stroke="#f28e2c" stroke-width="1.5"/>
+                  </g>
+                </svg>
+                <!-- Overlay bar (Series only) -->
+                <div id="cOverlayBar" style="display:none; position:absolute; bottom:4px; left:6px; right:6px; display:none; gap:3px; flex-wrap:wrap; align-items:center">
+                  <span style="font-size:9px; color:#9ca3af">overlay:</span>
+                  <span class="overlay-chip chip-pace" style="font-size:8px">Pace ✕</span>
+                  <span class="overlay-chip chip-hr" style="font-size:8px" id="cHRChip" onclick="toggleCHR()">HR</span>
+                  <span class="overlay-chip chip-elev" style="font-size:8px">Elev</span>
+                  <span class="overlay-chip chip-add" style="font-size:8px" onclick="toggleCHR()">+ add</span>
+                </div>
+              </div>
+            </div>
+            <!-- Split pane (hidden by default) -->
+            <div id="cSplitPane" class="plot-panel w-0 overflow-hidden transition-all" style="flex-shrink:0; width:0; opacity:0; transition: width .2s, opacity .2s;">
+              <div class="plot-panel-header" style="min-width:160px">
+                <span class="panel-badge badge-map">MAP</span>
+                <select style="font-size:9px; border:none; background:transparent; color:#9ca3af; margin-left:4px; cursor:pointer">
+                  <option>Map</option><option>Series</option><option>Scatter</option><option>Table</option>
+                </select>
+              </div>
+              <div class="plot-panel-body" style="min-width:160px; color:#d1d5db; font-size:10px">route map</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-gray-400 mt-1">⊟ button above the chart area toggles the split pane. The second panel has its own plot-type dropdown. When in Series mode, overlay chips appear in the panel footer.</p>
+
+    </div>
+
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div><p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Minimal changes to existing code and layout</li>
+          <li class="pro">✓ Tab bar and all existing muscle memory unchanged</li>
+          <li class="pro">✓ Overlay is an additive change to SeriesPlot only</li>
+          <li class="pro">✓ Split pane looks discoverable but not intrusive</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Can only ever show max 2 panels simultaneously</li>
+          <li class="con">✗ No 4-panel option for true overview</li>
+          <li class="con">✗ Tab bar mode is ambiguous when split is active (which tab is "active"?)</li>
+        </ul>
+      </div>
+      <div><p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• ⊟ icon next to tabs opens/closes the split pane</li>
+          <li>• Split pane has its own plot-type dropdown (independent of tab bar)</li>
+          <li>• Overlay chips appear only when primary panel is Series</li>
+          <li>• Split state and second panel type persisted in localStorage</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="concept-card p-6">
+    <h2 class="font-semibold text-gray-800 mb-4">Comparison summary</h2>
+    <table class="w-full text-xs border-collapse">
+      <thead>
+        <tr class="border-b border-gray-200 text-left">
+          <th class="py-2 pr-4 text-gray-500 font-medium">Criterion</th>
+          <th class="py-2 px-4 text-blue-700 font-semibold"><span class="concept-tag tag-a">A</span> Dial</th>
+          <th class="py-2 px-4 text-green-700 font-semibold"><span class="concept-tag tag-b">B</span> Presets</th>
+          <th class="py-2 px-4 text-amber-700 font-semibold"><span class="concept-tag tag-c">C</span> Minimal</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <tr><td class="py-2 pr-4 text-gray-600">Max simultaneous panels</td><td class="py-2 px-4">4</td><td class="py-2 px-4">4</td><td class="py-2 px-4">2</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">Overlay support</td><td class="py-2 px-4">Per Series panel</td><td class="py-2 px-4">Per Series panel</td><td class="py-2 px-4">Per Series panel</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">Dashboard refactor scope</td><td class="py-2 px-4 text-red-600">Large — new panel model</td><td class="py-2 px-4 text-amber-600">Medium — preset routing</td><td class="py-2 px-4 text-green-700 font-medium">Small — additive only</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">Fits US18 (crosshair+map) use case?</td><td class="py-2 px-4 text-green-700">Yes — Split</td><td class="py-2 px-4 text-green-700">Yes — Race analysis preset</td><td class="py-2 px-4 text-green-700">Yes — split pane</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">User configurability</td><td class="py-2 px-4">High (any combo)</td><td class="py-2 px-4">Medium (fixed presets)</td><td class="py-2 px-4 text-green-700 font-medium">Low — but sufficient</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">Regression risk to current UX</td><td class="py-2 px-4">Low (tab dial = today)</td><td class="py-2 px-4 text-green-700 font-medium">Lowest (Classic = today)</td><td class="py-2 px-4 text-green-700 font-medium">Lowest (unchanged tabs)</td></tr>
+        <tr><td class="py-2 pr-4 text-gray-600">Best suited if…</td><td class="py-2 px-4">Want full flexibility long-term</td><td class="py-2 px-4">Happy with curated workflows</td><td class="py-2 px-4">Want minimal risk / smallest diff</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div><!-- /max-w -->
+
+<script>
+/* ── Concept A ─────────────────────────────────────── */
+let aLayout = 'tab'
+let aTab = 'scatter'
+let aHROn = false
+
+function setALayout(mode, btn) {
+  document.querySelectorAll('#aLayoutSeg button').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  aLayout = mode
+
+  const tabShell   = document.getElementById('aTabPlotArea')?.closest('.dash-shell')
+  const splitShell = document.getElementById('aSplitView')
+  const gridShell  = document.getElementById('aGridView')
+  const splitLabel = document.getElementById('aSplitLabel')
+  const gridLabel  = document.getElementById('aGridLabel')
+
+  // hide all
+  ;[splitShell, gridShell, splitLabel, gridLabel].forEach(el => el && (el.style.display='none'))
+  // Tab mode: existing shell visible; no layout description needed
+  if (mode === 'split') {
+    splitShell.style.display = 'block'
+    splitLabel.style.display = 'block'
+  } else if (mode === 'grid') {
+    gridShell.style.display = 'block'
+    gridLabel.style.display = 'block'
+  }
+}
+
+function setATab(m, btn) {
+  document.querySelectorAll('#aTabSeg button').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  aTab = m
+  const badge = document.getElementById('aTabBadge')
+  const label = document.getElementById('aTabPanelLabel')
+  const scatterDots = document.getElementById('aScatterDots')
+  const seriesSvg   = document.getElementById('aSeriesSvg')
+  const overlaySvg  = document.getElementById('aScatterSvg')
+  const overlayBar  = document.getElementById('aOverlayBar')
+
+  const badgeMap = { scatter:'badge-scatter SCATTER', table:'badge-table TABLE', series:'badge-series SERIES', map:'badge-map MAP' }
+  const [cls, lbl] = badgeMap[m].split(' ')
+  badge.className = `panel-badge ${cls}`
+  badge.textContent = lbl
+
+  if (m === 'scatter') {
+    label.textContent = 'Distance vs Pace · 847 activities'
+    scatterDots.style.display = ''
+    seriesSvg.style.display = 'none'
+    overlayBar.style.display = 'none'
+  } else if (m === 'series') {
+    label.textContent = '3 rostered runs'
+    scatterDots.style.display = 'none'
+    seriesSvg.style.display = ''
+    overlayBar.style.display = 'flex'
+  } else {
+    label.textContent = m === 'table' ? '847 rows' : 'Route map'
+    scatterDots.style.display = 'none'
+    seriesSvg.style.display = 'none'
+    overlayBar.style.display = 'none'
+  }
+}
+
+function toggleAHR() {
+  aHROn = !aHROn
+  const overlay = document.getElementById('aHROverlay')
+  const chip    = document.getElementById('aHRChip')
+  if (overlay) overlay.style.display = aHROn ? '' : 'none'
+  if (chip)    chip.style.opacity = aHROn ? '1' : '.4'
+}
+
+/* ── Concept B ─────────────────────────────────────── */
+const bLayouts = {
+  'classic':       ['bClassicLayout',       'Single plot, one at a time (today\'s default)'],
+  'race-preview':  ['bRacePreviewLayout',   'Scatter + Map side by side — find races, see the route'],
+  'race-analysis': ['bRaceAnalysisLayout',  'Series + Map side by side — deep dive a single race'],
+  'deep-dive':     ['bDeepDiveLayout',      'Series + Table — compare stream data with activity stats'],
+  'overview':      ['bOverviewLayout',      '2×2 grid: Scatter · Series · Map · Table all at once'],
+}
+
+function setBPreset(name, btn) {
+  document.querySelectorAll('#bPresetButtons button').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  Object.entries(bLayouts).forEach(([key, [id]]) => {
+    document.getElementById(id).style.display = key === name ? '' : 'none'
+  })
+  document.getElementById('bPresetDesc').textContent = bLayouts[name][1]
+}
+
+let bHROn = false
+function toggleBHR() {
+  bHROn = !bHROn
+  const chip = document.getElementById('bHRChip')
+  const overlay = document.getElementById('bHROverlaySvg')
+  chip.style.opacity = bHROn ? '1' : '.4'
+  if (overlay) overlay.style.display = bHROn ? '' : 'none'
+}
+
+/* ── Concept C ─────────────────────────────────────── */
+let cSplitOpen = false
+let cHROn = false
+let cTab = 'scatter'
+
+function setCTab(m, btn) {
+  document.querySelectorAll('.c-tab-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  cTab = m
+  const badge = document.getElementById('cPrimaryBadge')
+  const overlayBar = document.getElementById('cOverlayBar')
+  const seriesSvg  = document.getElementById('cSeriesSvg')
+  const scatterCircles = document.querySelectorAll('#cPrimaryBody circle')
+
+  const badgeMap = { scatter:'badge-scatter SCATTER', table:'badge-table TABLE', series:'badge-series SERIES', map:'badge-map MAP' }
+  const [cls, lbl] = badgeMap[m].split(' ')
+  badge.className = `panel-badge ${cls}`
+  badge.textContent = lbl
+
+  if (m === 'series') {
+    scatterCircles.forEach(c => c.style.display = 'none')
+    seriesSvg.style.display = ''
+    overlayBar.style.display = 'flex'
+  } else {
+    scatterCircles.forEach(c => c.style.display = '')
+    seriesSvg.style.display = 'none'
+    overlayBar.style.display = 'none'
+  }
+}
+// patch tab buttons with class
+document.querySelectorAll('.topbar .seg button').forEach((b,i) => {
+  if (['Scatter','Table','Series','Map'].includes(b.textContent.trim())) {
+    b.classList.add('c-tab-btn')
+  }
+})
+
+function toggleCSplit() {
+  cSplitOpen = !cSplitOpen
+  const pane = document.getElementById('cSplitPane')
+  const btn  = document.getElementById('cSplitBtn')
+  if (cSplitOpen) {
+    pane.style.width = '45%'
+    pane.style.opacity = '1'
+    btn.style.background = '#fff7ed'
+    btn.style.color = '#f97316'
+  } else {
+    pane.style.width = '0'
+    pane.style.opacity = '0'
+    btn.style.background = 'white'
+    btn.style.color = '#9ca3af'
+  }
+}
+
+function toggleCHR() {
+  cHROn = !cHROn
+  const chip = document.getElementById('cHRChip')
+  chip.style.opacity = cHROn ? '1' : '.4'
+}
+
+/* ── Overlay axis demo ───────────────────────── */
+let overlayMode = 'stacked'
+let stackSplit = 50   // percent given to top band (elevation)
+
+function setOverlayMode(mode, btn) {
+  overlayMode = mode
+  document.querySelectorAll('.overlay-mode-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  document.getElementById('stackedView').style.display  = mode === 'stacked'  ? 'block' : 'none'
+  document.getElementById('dualaxisView').style.display = mode === 'dualaxis' ? 'block' : 'none'
+  document.getElementById('overlayDesc').textContent = mode === 'stacked'
+    ? 'Each metric occupies a proportional band of the plot. Bands share the x-axis but have independent y-axes. Band heights are adjustable by dragging the divider.'
+    : 'All metrics share the full plot height. Pace uses the left y-axis; secondary metrics each get a right-hand y-axis with their own scale. Lines can cross freely.'
+}
+
+function adjustSplit(delta) {
+  stackSplit = Math.max(15, Math.min(85, stackSplit + delta))
+  document.getElementById('elevBand').style.height  = stackSplit + '%'
+  document.getElementById('paceBand').style.height  = (100 - stackSplit) + '%'
+  document.getElementById('splitLabel').textContent = stackSplit + '% / ' + (100-stackSplit) + '%'
+}
+</script>
+
+<!-- ════════════════════════════════════════════
+     OVERLAY AXIS MODES (addendum to Concept A)
+     ════════════════════════════════════════════ -->
+<div class="max-w-5xl mx-auto pb-12 px-6">
+<div class="concept-card mt-8">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+    <span class="concept-tag tag-a">Concept A — addendum</span>
+    <div>
+      <h2 class="font-semibold text-gray-800 text-sm">Overlay axis modes: Stacked vs Dual-axis</h2>
+      <p class="text-xs text-gray-400 mt-0.5">When multiple metrics are active in a Series panel, the chart can render them in two fundamentally different ways. Toggle below to compare.</p>
+    </div>
+  </div>
+  <div class="p-5 space-y-4">
+
+    <div class="flex items-center gap-3">
+      <span class="text-xs font-medium text-gray-600">Axis mode:</span>
+      <div class="seg">
+        <button class="overlay-mode-btn active" onclick="setOverlayMode('stacked',this)">⧉ Stacked (swimlane)</button>
+        <button class="overlay-mode-btn" onclick="setOverlayMode('dualaxis',this)">⫲ Dual-axis (overlaid)</button>
+      </div>
+    </div>
+    <p id="overlayDesc" class="text-xs text-gray-500 italic">Each metric occupies a proportional band of the plot. Bands share the x-axis but have independent y-axes. Band heights are adjustable by dragging the divider.</p>
+
+    <!-- ── STACKED VIEW ──────────────────────────────── -->
+    <div id="stackedView">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-xs text-gray-500">Band split:</span>
+        <button class="btn-sm" onclick="adjustSplit(-10)">▲ more elev</button>
+        <span id="splitLabel" class="text-xs font-mono text-gray-600">50% / 50%</span>
+        <button class="btn-sm" onclick="adjustSplit(10)">▼ more pace</button>
+        <span class="text-xs text-gray-400 ml-2">(drag handle in real implementation)</span>
+      </div>
+
+      <div class="border border-gray-200 rounded-lg overflow-hidden bg-white" style="height:280px; display:flex; flex-direction:column">
+        <!-- Panel header with overlay chips -->
+        <div class="plot-panel-header" style="border-bottom:1px solid #f3f4f6">
+          <span class="panel-badge badge-series">SERIES</span>
+          <span class="text-gray-400" style="font-size:9px">London 2024 · London 2023 · Manchester 2024 &nbsp;·&nbsp; X: distance</span>
+          <div class="ml-auto flex gap-1">
+            <span class="overlay-chip chip-pace" style="font-size:8px">Pace ✕</span>
+            <span class="overlay-chip chip-elev" style="font-size:8px">Elevation ✕</span>
+            <span class="overlay-chip chip-hr"   style="font-size:8px; opacity:.45">HR</span>
+            <span class="overlay-chip chip-add"  style="font-size:8px">+</span>
+          </div>
+        </div>
+
+        <!-- Stacked bands container -->
+        <div class="flex-1 flex flex-col min-h-0 relative">
+
+          <!-- Elevation band (top) -->
+          <div id="elevBand" style="height:50%; display:flex; min-height:0; border-bottom:2px dashed #d1fae5; position:relative">
+            <!-- y-axis label -->
+            <div style="width:38px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-right:1px solid #e5e7eb">
+              <span style="font-size:8px; color:#059669; transform:rotate(-90deg); white-space:nowrap">Elevation (m)</span>
+            </div>
+            <div style="flex:1; position:relative">
+              <svg viewBox="0 0 320 100" class="w-full h-full" preserveAspectRatio="none">
+                <!-- elevation bands as area fills -->
+                <polygon points="0,80 40,70 80,55 120,35 160,45 200,30 240,40 280,25 320,20 320,100 0,100" fill="#d1fae5" opacity=".6"/>
+                <polyline points="0,80 40,70 80,55 120,35 160,45 200,30 240,40 280,25 320,20" fill="none" stroke="#059669" stroke-width="1.5"/>
+                <polyline points="0,82 40,72 80,58 120,38 160,48 200,33 240,43 280,28 320,23" fill="none" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" opacity=".5"/>
+                <polyline points="0,85 40,75 80,60 120,42 160,52 200,37 240,47 280,32 320,27" fill="none" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" opacity=".4"/>
+                <!-- y ticks -->
+                <text x="316" y="25" fill="#9ca3af" font-size="7" text-anchor="end">+180m</text>
+                <text x="316" y="95" fill="#9ca3af" font-size="7" text-anchor="end">0m</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Drag handle indicator -->
+          <div style="position:absolute; left:0; right:0; top:50%; transform:translateY(-50%); z-index:10; pointer-events:none">
+            <div style="background:white; border:1px solid #d1d5db; border-radius:4px; width:60px; margin:0 auto; text-align:center; font-size:8px; color:#9ca3af; padding:1px 4px; box-shadow:0 1px 3px rgba(0,0,0,.1)">⣿ drag</div>
+          </div>
+
+          <!-- Pace band (bottom) -->
+          <div id="paceBand" style="height:50%; display:flex; min-height:0; position:relative">
+            <div style="width:38px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-right:1px solid #e5e7eb">
+              <span style="font-size:8px; color:#c2410c; transform:rotate(-90deg); white-space:nowrap">Pace (min/km)</span>
+            </div>
+            <div style="flex:1; position:relative">
+              <svg viewBox="0 0 320 100" class="w-full h-full" preserveAspectRatio="none">
+                <polyline points="0,30 80,32 160,35 240,38 320,42" fill="none" stroke="#4e79a7" stroke-width="1.5"/>
+                <polyline points="0,40 80,42 160,45 240,50 320,58" fill="none" stroke="#f28e2c" stroke-width="1.5"/>
+                <polyline points="0,35 80,34 160,33 240,32 320,30" fill="none" stroke="#59a14f" stroke-width="1.5"/>
+                <!-- zero baseline -->
+                <line x1="0" y1="95" x2="320" y2="95" stroke="#e5e7eb"/>
+                <text x="316" y="28" fill="#9ca3af" font-size="7" text-anchor="end">3:30</text>
+                <text x="316" y="92" fill="#9ca3af" font-size="7" text-anchor="end">5:00</text>
+                <text x="160" y="99" fill="#9ca3af" font-size="7" text-anchor="middle">Distance (km)</text>
+              </svg>
+            </div>
+          </div>
+
+        </div><!-- /bands -->
+      </div><!-- /panel -->
+
+      <div class="mt-2 grid grid-cols-3 gap-4 text-xs">
+        <div><p class="font-semibold text-gray-700 mb-1">Stacked pros</p>
+          <ul class="space-y-0.5">
+            <li class="pro">✓ Y-axes never conflict — each metric has its own scale</li>
+            <li class="pro">✓ Adjustable proportions let you emphasise what matters</li>
+            <li class="pro">✓ Works cleanly with 3+ metrics (equal split or user-set)</li>
+            <li class="pro">✓ Similar to Garmin Connect / Strava segment charts</li>
+          </ul>
+        </div>
+        <div><p class="font-semibold text-gray-700 mb-1">Stacked cons</p>
+          <ul class="space-y-0.5">
+            <li class="con">✗ Hard to see correlation between metrics (e.g. pace vs HR) across bands</li>
+            <li class="con">✗ Each band needs enough height to be readable — cramped at small sizes</li>
+            <li class="con">✗ Drag handle interaction adds complexity</li>
+          </ul>
+        </div>
+        <div><p class="font-semibold text-gray-700 mb-1">Best for</p>
+          <ul class="space-y-0.5 note">
+            <li>Elevation + pace — very different scales, interesting spatially</li>
+            <li>Cadence + pace — both running metrics but unrelated scales</li>
+            <li>When you want to visually scan each metric independently</li>
+          </ul>
+        </div>
+      </div>
+    </div><!-- /stackedView -->
+
+    <!-- ── DUAL-AXIS VIEW ──────────────────────────────── -->
+    <div id="dualaxisView" style="display:none">
+      <div class="border border-gray-200 rounded-lg overflow-hidden bg-white" style="height:260px; display:flex; flex-direction:column">
+        <div class="plot-panel-header" style="border-bottom:1px solid #f3f4f6">
+          <span class="panel-badge badge-series">SERIES</span>
+          <span class="text-gray-400" style="font-size:9px">London 2024 · London 2023 &nbsp;·&nbsp; X: distance</span>
+          <div class="ml-auto flex gap-1">
+            <span class="overlay-chip chip-pace" style="font-size:8px">Pace ✗ (left)</span>
+            <span class="overlay-chip chip-hr"   style="font-size:8px">HR ✗ (right)</span>
+            <span class="overlay-chip chip-add"  style="font-size:8px">+</span>
+          </div>
+        </div>
+        <div style="flex:1; position:relative; overflow:hidden">
+          <svg viewBox="0 0 370 200" class="w-full h-full" preserveAspectRatio="none">
+            <!-- left y-axis (pace) -->
+            <line x1="42" y1="10" x2="42" y2="180" stroke="#e5e7eb"/>
+            <!-- right y-axis (HR) -->
+            <line x1="328" y1="10" x2="328" y2="180" stroke="#e5e7eb"/>
+            <!-- x-axis -->
+            <line x1="42" y1="180" x2="328" y2="180" stroke="#e5e7eb"/>
+
+            <!-- left axis labels (pace) -->
+            <text x="38" y="30"  fill="#c2410c" font-size="8" text-anchor="end">3:30</text>
+            <text x="38" y="100" fill="#c2410c" font-size="8" text-anchor="end">4:15</text>
+            <text x="38" y="175" fill="#c2410c" font-size="8" text-anchor="end">5:00</text>
+            <text x="14" y="100" fill="#c2410c" font-size="8" text-anchor="middle" transform="rotate(-90,14,100)">Pace (min/km)</text>
+
+            <!-- right axis labels (HR) -->
+            <text x="332" y="30"  fill="#dc2626" font-size="8">185</text>
+            <text x="332" y="100" fill="#dc2626" font-size="8">165</text>
+            <text x="332" y="175" fill="#dc2626" font-size="8">145</text>
+            <text x="356" y="100" fill="#dc2626" font-size="8" text-anchor="middle" transform="rotate(90,356,100)">HR (bpm)</text>
+
+            <!-- Pace lines (left axis) -->
+            <polyline points="42,55 110,58 178,62 246,68 328,75" fill="none" stroke="#4e79a7" stroke-width="2"/>
+            <polyline points="42,65 110,70 178,78 246,90 328,108" fill="none" stroke="#f28e2c" stroke-width="2"/>
+
+            <!-- HR lines (right axis, dashed, different scale) -->
+            <polyline points="42,120 110,112 178,100 246,88 328,72" fill="none" stroke="#4e79a7" stroke-width="1.5" stroke-dasharray="4,2" opacity=".8"/>
+            <polyline points="42,130 110,122 178,110 246,96 328,82" fill="none" stroke="#f28e2c" stroke-width="1.5" stroke-dasharray="4,2" opacity=".8"/>
+
+            <!-- legend -->
+            <line x1="55" y1="18" x2="75" y2="18" stroke="#6b7280" stroke-width="1.5"/>
+            <text x="78" y="21" fill="#6b7280" font-size="8">pace (left axis)</text>
+            <line x1="155" y1="18" x2="175" y2="18" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/>
+            <text x="178" y="21" fill="#6b7280" font-size="8">HR (right axis)</text>
+
+            <!-- x label -->
+            <text x="185" y="194" fill="#9ca3af" font-size="8" text-anchor="middle">Distance (km)</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="mt-2 grid grid-cols-3 gap-4 text-xs">
+        <div><p class="font-semibold text-gray-700 mb-1">Dual-axis pros</p>
+          <ul class="space-y-0.5">
+            <li class="pro">✓ Compact — full height available for every metric</li>
+            <li class="pro">✓ Correlation between metrics is immediately visible (e.g. pace slows, HR spikes)</li>
+            <li class="pro">✓ Familiar pattern (financial charts, Garmin race overlays)</li>
+          </ul>
+        </div>
+        <div><p class="font-semibold text-gray-700 mb-1">Dual-axis cons</p>
+          <ul class="space-y-0.5">
+            <li class="con">✗ 3+ metrics → 3+ y-axes → visual clutter</li>
+            <li class="con">✗ Solid vs dashed distinction is the only separator — can be hard to read</li>
+            <li class="con">✗ Y-axis scale manipulation can mislead (correlation looks stronger/weaker than it is)</li>
+            <li class="con">✗ Elevation as area fill doesn't work — must use a line</li>
+          </ul>
+        </div>
+        <div><p class="font-semibold text-gray-700 mb-1">Best for</p>
+          <ul class="space-y-0.5 note">
+            <li>Pace + HR — classic run analysis pairing</li>
+            <li>When you want to spot where pace and effort diverge</li>
+            <li>Limited to 2 metrics for clearest results</li>
+          </ul>
+        </div>
+      </div>
+    </div><!-- /dualaxisView -->
+
+    <!-- Design questions box -->
+    <div class="border border-amber-200 bg-amber-50 rounded-lg p-4 text-xs space-y-1.5">
+      <p class="font-semibold text-amber-800">Open design questions for implementation</p>
+      <ul class="space-y-1 text-amber-700">
+        <li>1. <strong>Default mode per pairing</strong>: should Pace+Elevation default to Stacked (scales incompatible) and Pace+HR default to Dual-axis (most useful correlation)?</li>
+        <li>2. <strong>3+ metrics in Dual-axis</strong>: cap at 2 metrics for dual-axis mode, or allow a third y-axis pinned to the left (pace) and two on the right?</li>
+        <li>3. <strong>3+ metrics in Stacked</strong>: equal splits by default, or does the first metric always get 50% and extras split the remainder?</li>
+        <li>4. <strong>Persisting split proportions</strong>: per-session (sessionStorage) or per-panel-config (localStorage with LayoutConfig)?</li>
+        <li>5. <strong>Axis lock</strong>: when two activities share a stacked band, should their y-scales be locked together or independent?</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+</div><!-- /addendum wrapper -->
+
+</body>
+</html>

@@ -8,12 +8,19 @@ interface RouteMapProps {
   activity: StravaActivity
   stream: ActivityStream | null
   loading?: boolean
+  color?: string
+  hoveredStreamIndex?: number | null
+  isDark?: boolean
 }
 
-export function RouteMap({ activity, stream, loading }: RouteMapProps) {
+export function RouteMap({ activity, stream, loading, color = '#f97316', hoveredStreamIndex, isDark = false }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Store map instance in a ref to clean up on unmount or activity change
   const mapRef = useRef<{ remove: () => void } | null>(null)
+  // Cache the Leaflet module after first dynamic import
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const leafletRef = useRef<any>(null)
+  const hoverMarkerRef = useRef<{ remove: () => void } | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -27,16 +34,37 @@ export function RouteMap({ activity, stream, loading }: RouteMapProps) {
     import('leaflet').then((L) => {
       if (cancelled || !containerRef.current) return
 
+      leafletRef.current = L
+
+      // Prevent Leaflet's default icon resolver from producing webpack:/// paths
+      // that Chrome DevTools can't handle ("Unable to add filesystem: <illegal path>")
+      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
+
       const map = L.map(containerRef.current)
       mapRef.current = map
+
+      // Dim only the tile layer pane — route overlay and markers are in separate panes
+      // and are unaffected by this.
+      map.getPanes().tilePane.style.opacity = isDark ? '0.6' : '0.45'
+      if (isDark) {
+        map.getPanes().tilePane.style.filter = 'invert(1) hue-rotate(180deg) contrast(1.4) brightness(0.8) saturate(0.7)'
+      }
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
       }).addTo(map)
 
+      // Force Leaflet to recalculate the container dimensions after the browser
+      // has finished laying out flex/grid parents (e.g. the double-panel layout).
+      setTimeout(() => { if (!cancelled) map.invalidateSize() }, 0)
+
       if (stream?.latlng && stream.latlng.length > 0) {
-        const line = L.polyline(stream.latlng, { color: '#f97316', weight: 3, opacity: 0.85 })
+        if (isDark) {
+          // Glow layer beneath the main line for contrast against the dark map
+          L.polyline(stream.latlng, { color, weight: 8, opacity: 0.25, interactive: false }).addTo(map)
+        }
+        const line = L.polyline(stream.latlng, { color, weight: isDark ? 4 : 3, opacity: isDark ? 1 : 0.85 })
         line.addTo(map)
         map.fitBounds(line.getBounds(), { padding: [24, 24] })
 
@@ -55,18 +83,40 @@ export function RouteMap({ activity, stream, loading }: RouteMapProps) {
       mapRef.current?.remove()
       mapRef.current = null
     }
-  }, [activity.id, stream])
+  }, [activity.id, stream, isDark])
+
+  // Add/remove the hover crosshair marker whenever hoveredStreamIndex changes
+  useEffect(() => {
+    hoverMarkerRef.current?.remove()
+    hoverMarkerRef.current = null
+    const L = leafletRef.current
+    const map = mapRef.current
+    if (!L || !map || !stream?.latlng || hoveredStreamIndex == null) return
+    const latlng = stream.latlng[hoveredStreamIndex]
+    if (!latlng) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const marker = L.circleMarker(latlng, { radius: 7, color: '#fff', fillColor: color, fillOpacity: 1, weight: 2 }).addTo(map as any)
+    hoverMarkerRef.current = marker
+  }, [hoveredStreamIndex, stream, color])
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col select-none">
       {/* Activity info bar */}
-      <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 flex items-center gap-4 text-sm text-gray-600">
-        <span className="font-medium text-gray-800 truncate max-w-xs">{activity.name}</span>
+      <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
+        <span className="font-medium text-gray-800 dark:text-gray-100 truncate max-w-xs">{activity.name}</span>
         <span>{new Date(activity.start_date_local).toLocaleDateString()}</span>
         <span>{(activity.distance / 1000).toFixed(2)} km</span>
         {activity.moving_time && (
           <span>
-            {Math.floor(activity.moving_time / 60)}:{String(activity.moving_time % 60).padStart(2, '0')}
+            {(() => {
+              const t = activity.moving_time
+              const h = Math.floor(t / 3600)
+              const m = Math.floor((t % 3600) / 60)
+              const s = t % 60
+              return h > 0
+                ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+                : `${m}:${String(s).padStart(2, '0')}`
+            })()}
           </span>
         )}
       </div>
@@ -75,13 +125,13 @@ export function RouteMap({ activity, stream, loading }: RouteMapProps) {
       <div className="flex-1 relative min-h-0">
         <div ref={containerRef} className="absolute inset-0" />
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-            <span className="text-gray-500 text-sm">Loading route...</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 z-10">
+            <span className="text-gray-500 dark:text-gray-400 text-sm">Loading route...</span>
           </div>
         )}
         {!loading && !stream?.latlng?.length && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10">
-            <span className="text-gray-400 text-sm">No GPS data for this activity</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-900/50 z-10">
+            <span className="text-gray-400 dark:text-gray-500 text-sm">No GPS data for this activity</span>
           </div>
         )}
       </div>

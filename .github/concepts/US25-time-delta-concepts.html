@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>US25 – Time Delta Plot: UI Concepts</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* Simulate the app's roster item colour dots */
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .btn-seg {
+    padding:2px 8px; font-size:11px; border:1px solid #d1d5db; color:#6b7280;
+    transition:background 0.1s; cursor:pointer; background:white;
+  }
+  .btn-seg:first-child { border-radius:4px 0 0 4px; }
+  .btn-seg:last-child  { border-radius:0 4px 4px 0; }
+  .btn-seg + .btn-seg  { border-left:none; }
+  .btn-seg.active      { background:#f97316; color:white; border-color:#f97316; }
+  .btn-seg:hover:not(.active) { background:#fff7ed; color:#f97316; border-color:#fdba74; }
+
+  .btn-ctrl {
+    padding:2px 8px; font-size:11px; border:1px solid; border-radius:4px;
+    cursor:pointer; transition:background 0.1s;
+    border-color:#d1d5db; color:#6b7280; background:white;
+  }
+  .btn-ctrl.active      { background:#f97316; color:white; border-color:#f97316; }
+  .btn-ctrl.delta-active { background:#6366f1; color:white; border-color:#6366f1; }
+  .btn-ctrl:hover:not(.active):not(.delta-active) { background:#fff7ed; color:#f97316; border-color:#fdba74; }
+
+  .roster-item {
+    display:flex; align-items:center; gap:6px; padding:4px 8px;
+    border-radius:4px; cursor:pointer; font-size:12px;
+  }
+  .roster-item:hover { background:#fff7ed; }
+  .roster-item.baseline-item { background:#eef2ff; border:1px solid #c7d2fe; }
+  .roster-item.selected-item { background:#fff7ed; border:1px solid #fed7aa; }
+
+  /* SVG chart area */
+  .chart-area {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .y-label {
+    position: absolute; left: 4px; top: 50%;
+    transform: translateY(-50%) rotate(-90deg);
+    font-size: 10px; color: #9ca3af;
+    white-space: nowrap;
+  }
+
+  .zero-line {
+    position: absolute; left: 48px; right: 8px;
+    height: 1px; background: #374151;
+    opacity: 0.4;
+  }
+
+  /* Delta line animation approximation */
+  svg.delta-chart line.lead { stroke-width:2; }
+  svg.delta-chart line.trail { stroke-width:2; }
+
+  .concept-card {
+    background:white; border:1px solid #e5e7eb; border-radius:12px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
+    overflow:hidden;
+  }
+  .concept-tag {
+    display:inline-block; padding:2px 10px; border-radius:20px;
+    font-size:11px; font-weight:600; letter-spacing:.03em;
+  }
+  .tag-a { background:#dbeafe; color:#1d4ed8; }
+  .tag-b { background:#dcfce7; color:#166534; }
+  .tag-c { background:#fef3c7; color:#92400e; }
+
+  .pro  { color:#16a34a; }
+  .con  { color:#dc2626; }
+  .note { color:#6b7280; }
+
+  /* Radio baseline style */
+  input[type=radio].baseline-radio { accent-color:#6366f1; }
+
+  .tooltip-delta {
+    position:absolute; background:white; border:1px solid #e5e7eb;
+    border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.1);
+    padding:8px 12px; font-size:11px; color:#374151; pointer-events:none;
+  }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div class="max-w-5xl mx-auto py-10 px-6 space-y-12">
+
+  <!-- Header -->
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">US25 – Time Delta Plot</h1>
+    <p class="mt-1 text-gray-500 text-sm">Three UI concepts for baseline selection and delta visualisation. Click interactive elements to see state changes.</p>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       CONCEPT A — Roster radio + "Δ delta" Y-metric
+       ───────────────────────────────────────────── -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-a">Concept A</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Roster radio button → "Δ delta" Y-metric button</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Baseline is chosen in the roster; delta mode is a new first-class Y option beside cumul./rolling/etc.</p>
+      </div>
+    </div>
+
+    <div class="p-6 grid grid-cols-[180px_1fr] gap-4">
+
+      <!-- Roster (left sidebar simulation) -->
+      <div class="border border-gray-200 rounded-lg p-3 bg-gray-50 text-xs">
+        <div class="flex items-center justify-between mb-2">
+          <p class="font-medium text-gray-500 uppercase tracking-wide" style="font-size:10px">Roster</p>
+          <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold" style="font-size:10px">3 / 10</span>
+        </div>
+        <ul class="space-y-1" id="rosterA">
+          <!-- items injected by JS -->
+        </ul>
+        <p class="mt-3 text-gray-400 italic" style="font-size:10px">★ = set as baseline</p>
+      </div>
+
+      <!-- Series plot main area -->
+      <div class="flex flex-col gap-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+        <!-- Controls bar -->
+        <div class="flex flex-wrap gap-2 px-3 py-2 border-b border-gray-100 items-center bg-white">
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">Y:</span>
+            <div class="flex">
+              <button class="btn-seg active" id="aYCumul" onclick="setAY('cumulative',this)">cumul.</button>
+              <button class="btn-seg" id="aYRolling" onclick="setAY('rolling',this)">rolling</button>
+              <button class="btn-seg" id="aYRaw" onclick="setAY('raw',this)">raw</button>
+              <button class="btn-seg" id="aYHR" onclick="setAY('heartrate',this)">heartrate</button>
+              <button class="btn-seg" id="aYElev" onclick="setAY('elevation',this)">elevation</button>
+              <button class="btn-seg" id="aYDelta" onclick="setAY('delta',this)" style="border-color:#c7d2fe; color:#6366f1;">Δ delta</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">X:</span>
+            <div class="flex">
+              <button class="btn-seg active">distance</button>
+              <button class="btn-seg">time</button>
+            </div>
+          </div>
+          <span id="aYLabel" class="text-gray-400 ml-1" style="font-size:10px">cumulative average pace</span>
+        </div>
+
+        <!-- Chart area -->
+        <div class="flex-1 relative" style="height:180px">
+          <!-- Normal series chart -->
+          <div id="aNormal" class="absolute inset-0">
+            <span class="y-label">Pace (min/km)</span>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <!-- axes -->
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <!-- series lines (approximate) -->
+              <polyline points="48,80 120,82 200,84 280,86 390,90" fill="none" stroke="#4e79a7" stroke-width="2"/>
+              <polyline points="48,70 120,74 200,80 280,90 390,105" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,88 200,86 280,82 390,75" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <!-- x label -->
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+          </div>
+          <!-- Delta chart -->
+          <div id="aDelta" class="absolute inset-0" style="display:none">
+            <span class="y-label">Time delta (s)</span>
+            <div class="zero-line" style="top:50%"></div>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <!-- zero line -->
+              <line x1="48" y1="90" x2="390" y2="90" stroke="#374151" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+              <!-- baseline label -->
+              <text x="54" y="86" fill="#6366f1" font-size="9">baseline</text>
+              <!-- delta lines -->
+              <polyline points="48,90 120,85 200,75 280,60 390,40" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,95 200,105 280,118 390,130" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <!-- annotations -->
+              <text x="375" y="38" fill="#f28e2b" font-size="9" text-anchor="end">−35 s</text>
+              <text x="375" y="145" fill="#59a14f" font-size="9" text-anchor="end">+42 s</text>
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+            <div id="aNoBaseline" class="absolute inset-0 flex items-center justify-center bg-white/80 rounded" style="display:none!important">
+              <p class="text-gray-400 text-sm">Select a baseline run in the roster (★)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trade-off notes -->
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Baseline is glanceable in roster</li>
+          <li class="pro">✓ Delta is a first-class Y mode — familiar pattern</li>
+          <li class="pro">✓ Other Y metrics still work while baseline set</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Roster panel needs new radio/star controls</li>
+          <li class="con">✗ Delta Y-seg button is visually odd (different meaning to others)</li>
+          <li class="con">✗ Two separate places to configure one feature</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• Click ★ on roster item → sets as baseline</li>
+          <li>• Click "Δ delta" Y button → switches plot to delta</li>
+          <li>• If delta selected with no baseline: show prompt</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       CONCEPT B — Baseline dropdown in plot controls
+       ───────────────────────────────────────────── -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-b">Concept B</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Baseline dropdown in plot controls → delta auto-activates</h2>
+        <p class="text-xs text-gray-400 mt-0.5">A "Baseline:" select in the controls bar. Picking one auto-switches Y to delta. Roster unchanged.</p>
+      </div>
+    </div>
+
+    <div class="p-6 grid grid-cols-[180px_1fr] gap-4">
+
+      <!-- Roster (unchanged) -->
+      <div class="border border-gray-200 rounded-lg p-3 bg-gray-50 text-xs">
+        <div class="flex items-center justify-between mb-2">
+          <p class="font-medium text-gray-500 uppercase tracking-wide" style="font-size:10px">Roster</p>
+          <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold" style="font-size:10px">3 / 10</span>
+        </div>
+        <ul class="space-y-1">
+          <li class="roster-item"><span class="dot" style="background:#4e79a7"></span><div><p class="font-medium text-gray-700">London Marathon 2024</p><p class="text-gray-400">42.2 km · 3:58/km</p></div></li>
+          <li class="roster-item"><span class="dot" style="background:#f28e2b"></span><div><p class="font-medium text-gray-700">London Marathon 2023</p><p class="text-gray-400">42.2 km · 4:06/km</p></div></li>
+          <li class="roster-item"><span class="dot" style="background:#59a14f"></span><div><p class="font-medium text-gray-700">Manchester Marathon 2024</p><p class="text-gray-400">42.4 km · 4:01/km</p></div></li>
+        </ul>
+      </div>
+
+      <!-- Series plot main area -->
+      <div class="flex flex-col gap-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+        <!-- Controls bar — with baseline dropdown -->
+        <div class="flex flex-wrap gap-2 px-3 py-2 border-b border-gray-100 items-center bg-white">
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">Y:</span>
+            <div class="flex" id="bYButtons">
+              <button class="btn-seg active" id="bYCumul" onclick="setBYMetric('cumulative',this)">cumul.</button>
+              <button class="btn-seg" id="bYRolling" onclick="setBYMetric('rolling',this)">rolling</button>
+              <button class="btn-seg" id="bYRaw" onclick="setBYMetric('raw',this)">raw</button>
+              <button class="btn-seg" id="bYHR" onclick="setBYMetric('heartrate',this)">heartrate</button>
+              <button class="btn-seg" id="bYElev" onclick="setBYMetric('elevation',this)">elevation</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">X:</span>
+            <div class="flex">
+              <button class="btn-seg active">distance</button>
+              <button class="btn-seg">time</button>
+            </div>
+          </div>
+          <!-- Baseline selector -->
+          <div class="flex items-center gap-1.5 ml-auto">
+            <span class="text-purple-500 font-medium" style="font-size:11px">Baseline:</span>
+            <select id="bBaselineSelect" onchange="setBBaseline()" class="text-xs border border-purple-200 rounded px-1.5 py-0.5 bg-purple-50 text-purple-700 focus:outline-none cursor-pointer">
+              <option value="">— none —</option>
+              <option value="london24">London Marathon 2024</option>
+              <option value="london23">London Marathon 2023</option>
+              <option value="mcr24">Manchester Marathon 2024</option>
+            </select>
+          </div>
+          <span id="bYLabel" class="text-gray-400" style="font-size:10px">cumulative average pace</span>
+        </div>
+
+        <!-- Chart area -->
+        <div class="flex-1 relative" style="height:180px">
+          <div id="bNormal" class="absolute inset-0">
+            <span class="y-label">Pace (min/km)</span>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <polyline points="48,80 120,82 200,84 280,86 390,90" fill="none" stroke="#4e79a7" stroke-width="2"/>
+              <polyline points="48,70 120,74 200,80 280,90 390,105" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,88 200,86 280,82 390,75" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+          </div>
+          <div id="bDelta" class="absolute inset-0" style="display:none">
+            <span class="y-label">Time delta (s)</span>
+            <div class="zero-line" style="top:50%"></div>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="90" x2="390" y2="90" stroke="#374151" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+              <!-- Baseline shown as reference activity with dashed indicator -->
+              <polyline points="48,90 390,90" fill="none" stroke="#4e79a7" stroke-width="1.5" stroke-dasharray="4,3"/>
+              <text x="54" y="86" fill="#4e79a7" font-size="9">baseline (London 2024)</text>
+              <polyline points="48,90 120,95 200,108 280,118 390,132" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,86 200,79 280,70 390,55" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <text x="375" y="50" fill="#59a14f" font-size="9" text-anchor="end">−45 s</text>
+              <text x="375" y="147" fill="#f28e2b" font-size="9" text-anchor="end">+38 s</text>
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Everything in one bar — self-contained</li>
+          <li class="pro">✓ Roster panel needs zero changes</li>
+          <li class="pro">✓ Dropdown makes selection/deselection obvious</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Controls bar becomes more crowded</li>
+          <li class="con">✗ Auto-switching Y to delta may surprise users</li>
+          <li class="con">✗ Long activity names overflow the dropdown</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• Select baseline → plot switches to delta + Y label updates</li>
+          <li>• Select "— none —" → reverts to normal Y metrics</li>
+          <li>• Only roster members appear in dropdown</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       CONCEPT C — Roster click-to-pin + delta toggle overlay
+       ───────────────────────────────────────────── -->
+  <div class="concept-card">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+      <span class="concept-tag tag-c">Concept C</span>
+      <div>
+        <h2 class="font-semibold text-gray-800 text-sm">Roster click-to-baseline + "Δ" overlay toggle in plot header</h2>
+        <p class="text-xs text-gray-400 mt-0.5">Clicking a roster item sets it as baseline (replaces current select-to-focus). A Δ toggle in the plot header switches view. Delta overlays the normal series.</p>
+      </div>
+    </div>
+
+    <div class="p-6 grid grid-cols-[180px_1fr] gap-4">
+
+      <!-- Roster with click-to-baseline -->
+      <div class="border border-gray-200 rounded-lg p-3 bg-gray-50 text-xs">
+        <div class="flex items-center justify-between mb-2">
+          <p class="font-medium text-gray-500 uppercase tracking-wide" style="font-size:10px">Roster</p>
+          <span class="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold" style="font-size:10px">3 / 10</span>
+        </div>
+        <p class="text-gray-400 mb-1.5" style="font-size:10px">Click to set baseline</p>
+        <ul class="space-y-1" id="rosterC">
+          <!-- injected by JS -->
+        </ul>
+      </div>
+
+      <!-- Series plot main area -->
+      <div class="flex flex-col gap-0 border border-gray-200 rounded-lg overflow-hidden bg-white">
+        <!-- Controls bar — same as today + Δ button on the right -->
+        <div class="flex flex-wrap gap-2 px-3 py-2 border-b border-gray-100 items-center bg-white">
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">Y:</span>
+            <div class="flex">
+              <button class="btn-seg active">cumul.</button>
+              <button class="btn-seg">rolling</button>
+              <button class="btn-seg">raw</button>
+              <button class="btn-seg">heartrate</button>
+              <button class="btn-seg">elevation</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-gray-500" style="font-size:11px">X:</span>
+            <div class="flex">
+              <button class="btn-seg active">distance</button>
+              <button class="btn-seg">time</button>
+            </div>
+          </div>
+          <!-- Δ toggle on right -->
+          <button id="cDeltaToggle" onclick="toggleCDelta()" class="btn-ctrl ml-auto" style="border-color:#c7d2fe; color:#6366f1;">
+            Δ Time delta
+          </button>
+          <span id="cBaselineLabel" class="text-gray-400" style="font-size:10px; display:none">vs. <span id="cBaselineName" class="text-purple-600 font-medium"></span></span>
+        </div>
+
+        <!-- Chart area -->
+        <div class="flex-1 relative" style="height:180px">
+          <div id="cNormal" class="absolute inset-0">
+            <span class="y-label">Pace (min/km)</span>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <polyline points="48,80 120,82 200,84 280,86 390,90" fill="none" stroke="#4e79a7" stroke-width="2"/>
+              <polyline points="48,70 120,74 200,80 280,90 390,105" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,88 200,86 280,82 390,75" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+          </div>
+          <div id="cDelta" class="absolute inset-0" style="display:none">
+            <span class="y-label">Time delta (s)</span>
+            <div class="zero-line" style="top:50%"></div>
+            <svg class="w-full h-full delta-chart" viewBox="0 0 400 180" preserveAspectRatio="none">
+              <line x1="48" y1="10" x2="48" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="155" x2="390" y2="155" stroke="#e5e7eb"/>
+              <line x1="48" y1="90" x2="390" y2="90" stroke="#374151" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+              <polyline points="48,90 390,90" fill="none" stroke="#4e79a7" stroke-width="1.5" stroke-dasharray="4,3"/>
+              <text x="54" y="86" fill="#4e79a7" font-size="9">baseline</text>
+              <polyline points="48,90 120,94 200,103 280,115 390,128" fill="none" stroke="#f28e2b" stroke-width="2"/>
+              <polyline points="48,90 120,87 200,80 280,68 390,52" fill="none" stroke="#59a14f" stroke-width="2"/>
+              <text x="375" y="47" fill="#59a14f" font-size="9" text-anchor="end">−49 s</text>
+              <text x="375" y="143" fill="#f28e2b" font-size="9" text-anchor="end">+34 s</text>
+              <text x="220" y="172" fill="#9ca3af" font-size="10" text-anchor="middle">Distance (km)</text>
+            </svg>
+          </div>
+          <!-- No baseline placeholder -->
+          <div id="cNoBaseline" class="absolute inset-0 flex items-center justify-center bg-white/90 rounded-b" style="display:none">
+            <p class="text-gray-400 text-sm text-center px-4">Click a run in the roster to set it as the baseline, then enable Δ</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-6 pb-5 grid grid-cols-3 gap-4 text-xs">
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Pros</p>
+        <ul class="space-y-0.5">
+          <li class="pro">✓ Roster click repurposed cleanly (was: select to focus)</li>
+          <li class="pro">✓ Δ toggle is minimal — one button on the right</li>
+          <li class="pro">✓ Baseline name shown inline → clear context</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Cons</p>
+        <ul class="space-y-0.5">
+          <li class="con">✗ Repurposing roster click may confuse existing users</li>
+          <li class="con">✗ No Y-metric flexibility in delta mode</li>
+          <li class="con">✗ Δ toggle without baseline selected needs graceful handling</li>
+        </ul>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-700 mb-1">Interactions</p>
+        <ul class="space-y-0.5 note">
+          <li>• Click roster item → highlighted as baseline</li>
+          <li>• Click "Δ Time delta" → switches chart; shows baseline name</li>
+          <li>• Toggle off or click same roster item → reverts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       Comparison summary
+       ───────────────────────────────────────────── -->
+  <div class="concept-card p-6">
+    <h2 class="font-semibold text-gray-800 mb-4">Comparison summary</h2>
+    <table class="w-full text-xs border-collapse">
+      <thead>
+        <tr class="border-b border-gray-200 text-left">
+          <th class="py-2 pr-4 text-gray-500 font-medium">Criterion</th>
+          <th class="py-2 px-4 text-blue-700 font-semibold"><span class="concept-tag tag-a">A</span></th>
+          <th class="py-2 px-4 text-green-700 font-semibold"><span class="concept-tag tag-b">B</span></th>
+          <th class="py-2 px-4 text-amber-700 font-semibold"><span class="concept-tag tag-c">C</span></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Roster panel changes</td>
+          <td class="py-2 px-4">New radio/star per item</td>
+          <td class="py-2 px-4 text-green-700 font-medium">None</td>
+          <td class="py-2 px-4">Repurpose click action</td>
+        </tr>
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Plot controls changes</td>
+          <td class="py-2 px-4">One new Y-seg button</td>
+          <td class="py-2 px-4">New dropdown (crowded bar)</td>
+          <td class="py-2 px-4 text-green-700 font-medium">One new toggle button</td>
+        </tr>
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Baseline discoverability</td>
+          <td class="py-2 px-4">Good — in roster</td>
+          <td class="py-2 px-4">Good — in controls</td>
+          <td class="py-2 px-4">Medium — click-to-set pattern not obvious</td>
+        </tr>
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Scope of code change</td>
+          <td class="py-2 px-4">Medium</td>
+          <td class="py-2 px-4">Small</td>
+          <td class="py-2 px-4">Medium + behaviour break</td>
+        </tr>
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Story AC coverage</td>
+          <td class="py-2 px-4 text-green-700 font-medium">Full</td>
+          <td class="py-2 px-4 text-green-700 font-medium">Full</td>
+          <td class="py-2 px-4">Full (if Y label updated)</td>
+        </tr>
+        <tr>
+          <td class="py-2 pr-4 text-gray-600">Recommendation</td>
+          <td class="py-2 px-4 text-blue-700 font-semibold">Good default choice</td>
+          <td class="py-2 px-4 text-green-700 font-semibold">Lowest risk, smallest diff</td>
+          <td class="py-2 px-4 text-amber-700">Cleanest UX but most disruptive</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div><!-- /max-w -->
+
+<script>
+  /* ── Concept A ─────────────────────────────────── */
+  const activitiesA = [
+    { id:'a1', name:'London Marathon 2024', sub:'42.2 km · 3:58/km', color:'#4e79a7' },
+    { id:'a2', name:'London Marathon 2023', sub:'42.2 km · 4:06/km', color:'#f28e2b' },
+    { id:'a3', name:'Manchester 2024',      sub:'42.4 km · 4:01/km', color:'#59a14f' },
+  ]
+  let aBaseline = null
+
+  function renderRosterA() {
+    const ul = document.getElementById('rosterA')
+    ul.innerHTML = activitiesA.map(a => `
+      <li class="roster-item ${a.id===aBaseline ? 'baseline-item' : ''}" onclick="setABaseline('${a.id}')">
+        <span class="dot" style="background:${a.color}"></span>
+        <div class="flex-1 min-w-0">
+          <p class="font-medium text-gray-700 truncate">${a.name}</p>
+          <p class="text-gray-400">${a.sub}</p>
+        </div>
+        <span title="Set as baseline" style="font-size:13px; cursor:pointer; color:${a.id===aBaseline ? '#6366f1':'#d1d5db'}" onclick="event.stopPropagation();setABaseline('${a.id}')">★</span>
+      </li>`).join('')
+  }
+
+  function setABaseline(id) {
+    aBaseline = aBaseline === id ? null : id
+    renderRosterA()
+  }
+
+  let aYCurrent = 'cumulative'
+  function setAY(m, btn) {
+    document.querySelectorAll('#rosterA ~ * .btn-seg, #aYCumul, #aYRolling, #aYRaw, #aYHR, #aYElev, #aYDelta').forEach(b => b.classList.remove('active'))
+    // reset Y buttons
+    ;['aYCumul','aYRolling','aYRaw','aYHR','aYElev','aYDelta'].forEach(id => document.getElementById(id)?.classList.remove('active'))
+    btn.classList.add('active')
+    aYCurrent = m
+    const lbl = document.getElementById('aYLabel')
+    const normal = document.getElementById('aNormal')
+    const delta  = document.getElementById('aDelta')
+    if (m === 'delta') {
+      lbl.textContent = aBaseline ? '' : 'select a baseline in roster (★)'
+      lbl.style.color = '#6366f1'
+      normal.style.display = 'none'
+      delta.style.display  = 'block'
+    } else {
+      const labels = {cumulative:'cumulative average pace', rolling:'rolling pace', raw:'raw pace', heartrate:'heart rate (bpm)', elevation:'elevation (m)', cadence:'cadence'}
+      lbl.textContent = labels[m] || ''
+      lbl.style.color = '#9ca3af'
+      normal.style.display = 'block'
+      delta.style.display  = 'none'
+    }
+  }
+
+  renderRosterA()
+
+  /* ── Concept B ─────────────────────────────────── */
+  function setBBaseline() {
+    const sel = document.getElementById('bBaselineSelect').value
+    const normal = document.getElementById('bNormal')
+    const delta  = document.getElementById('bDelta')
+    const lbl    = document.getElementById('bYLabel')
+    if (sel) {
+      normal.style.display = 'none'
+      delta.style.display  = 'block'
+      lbl.textContent      = 'time delta vs. baseline'
+      lbl.style.color      = '#6366f1'
+    } else {
+      normal.style.display = 'block'
+      delta.style.display  = 'none'
+      lbl.textContent      = 'cumulative average pace'
+      lbl.style.color      = '#9ca3af'
+    }
+  }
+
+  let bYCurrent = 'cumulative'
+  function setBYMetric(m, btn) {
+    ;['bYCumul','bYRolling','bYRaw','bYHR','bYElev'].forEach(id => document.getElementById(id)?.classList.remove('active'))
+    btn.classList.add('active')
+    // if baseline is set, keep delta view
+    const sel = document.getElementById('bBaselineSelect').value
+    if (!sel) {
+      const labels = {cumulative:'cumulative average pace', rolling:'rolling pace', raw:'raw pace', heartrate:'heart rate', elevation:'elevation'}
+      document.getElementById('bYLabel').textContent = labels[m] || ''
+    }
+  }
+
+  /* ── Concept C ─────────────────────────────────── */
+  const activitiesC = [
+    { id:'c1', name:'London Marathon 2024', sub:'42.2 km · 3:58/km', color:'#4e79a7' },
+    { id:'c2', name:'London Marathon 2023', sub:'42.2 km · 4:06/km', color:'#f28e2b' },
+    { id:'c3', name:'Manchester 2024',      sub:'42.4 km · 4:01/km', color:'#59a14f' },
+  ]
+  let cBaseline   = null
+  let cDeltaOn    = false
+
+  function renderRosterC() {
+    const ul = document.getElementById('rosterC')
+    ul.innerHTML = activitiesC.map(a => `
+      <li class="roster-item ${a.id===cBaseline ? 'baseline-item' : ''}" onclick="setCBaseline('${a.id}')">
+        <span class="dot" style="background:${a.color}"></span>
+        <div class="flex-1 min-w-0">
+          <p class="font-medium text-gray-700 truncate">${a.id===cBaseline ? '⊙ ' : ''}${a.name}</p>
+          <p class="text-gray-400">${a.sub}</p>
+        </div>
+      </li>`).join('')
+  }
+
+  function setCBaseline(id) {
+    cBaseline = cBaseline === id ? null : id
+    renderRosterC()
+    updateCPlot()
+  }
+
+  function toggleCDelta() {
+    if (!cBaseline) {
+      document.getElementById('cNoBaseline').style.display = 'flex'
+      setTimeout(() => document.getElementById('cNoBaseline').style.display = 'none', 1800)
+      return
+    }
+    cDeltaOn = !cDeltaOn
+    updateCPlot()
+  }
+
+  function updateCPlot() {
+    const toggle = document.getElementById('cDeltaToggle')
+    const normal = document.getElementById('cNormal')
+    const delta  = document.getElementById('cDelta')
+    const blabel = document.getElementById('cBaselineLabel')
+    const bname  = document.getElementById('cBaselineName')
+
+    if (cDeltaOn && cBaseline) {
+      toggle.classList.add('delta-active')
+      normal.style.display = 'none'
+      delta.style.display  = 'block'
+      blabel.style.display = 'inline'
+      const a = activitiesC.find(x => x.id === cBaseline)
+      bname.textContent = a?.name ?? ''
+    } else {
+      toggle.classList.remove('delta-active')
+      normal.style.display = 'block'
+      delta.style.display  = 'none'
+      blabel.style.display = 'none'
+      if (!cBaseline) cDeltaOn = false
+    }
+  }
+
+  renderRosterC()
+</script>
+</body>
+</html>

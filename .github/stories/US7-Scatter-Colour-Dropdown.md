@@ -14,3 +14,7 @@
 
 - Relevant files: `components/plots/ScatterPlot.tsx` (replace colour scheme buttons with `<select>` or custom dropdown), `components/plots/AxisSelector.tsx` (if this is refactored out)
 - The `COLOR_SCHEMES` record already maps names to interpolators — just change the UI control
+
+## Completed
+
+**2026-03-07** — Replaced colour scheme button row with a `<select>` dropdown in `ScatterPlot.tsx`. Displays current scheme name; updates plot on change.
